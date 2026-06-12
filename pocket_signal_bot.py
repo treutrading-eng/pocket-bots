@@ -1,11 +1,12 @@
 """
-Pocket Option — Signal Bot для Telegram
-с выбором языка (RU/EN) и улучшенным дизайном
+Pocket Option — Signal Bot
+с выбором языка, временем захода и описанием сигнала
 """
 
 import os
 import logging
 import random
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -18,7 +19,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ─── Язык пользователей (user_id -> "ru"/"en") ────────────────
 USER_LANG: dict[int, str] = {}
 
 def lang(uid: int) -> str:
@@ -31,64 +31,103 @@ T = {
         "en": "🌐 Выберите язык / Choose language:",
     },
     "menu_title": {
-        "ru": (
-            "╔══════════════════════════╗\n"
-            "║  📊 POCKET OPTION BOT    ║\n"
-            "╚══════════════════════════╝\n\n"
-            "Выберите торговую пару:"
-        ),
-        "en": (
-            "╔══════════════════════════╗\n"
-            "║  📊 POCKET OPTION BOT    ║\n"
-            "╚══════════════════════════╝\n\n"
-            "Choose a trading pair:"
-        ),
+        "ru": "╔══════════════════════════╗\n║  📊 POCKET OPTION BOT    ║\n╚══════════════════════════╝\n\nВыберите торговую пару:",
+        "en": "╔══════════════════════════╗\n║  📊 POCKET OPTION BOT    ║\n╚══════════════════════════╝\n\nChoose a trading pair:",
     },
-    "forex": {"ru": "🌍 Форекс пары", "en": "🌍 Forex pairs"},
-    "otc":   {"ru": "🕐 OTC пары",    "en": "🕐 OTC pairs"},
-    "crypto":{"ru": "₿ Крипто",       "en": "₿ Crypto"},
-    "all":   {"ru": "🔄 Все пары",    "en": "🔄 All pairs"},
-    "back":  {"ru": "◀ Назад",        "en": "◀ Back"},
+    "forex":     {"ru": "🌍 Форекс",      "en": "🌍 Forex"},
+    "otc":       {"ru": "🕐 OTC пары",    "en": "🕐 OTC pairs"},
+    "crypto":    {"ru": "₿ Крипто",       "en": "₿ Crypto"},
+    "all":       {"ru": "🔄 Все пары",    "en": "🔄 All pairs"},
+    "back":      {"ru": "◀ Назад",        "en": "◀ Back"},
+    "settings":  {"ru": "⚙️ Язык",        "en": "⚙️ Language"},
     "choose_tf": {"ru": "⏱ Выберите таймфрейм:", "en": "⏱ Choose timeframe:"},
     "indicators":{"ru": "📊 Индикаторы", "en": "📊 Indicators"},
-    "price":     {"ru": "Цена",          "en": "Price"},
-    "signal":    {"ru": "Сигнал",        "en": "Signal"},
-    "confidence":{"ru": "Уверенность",   "en": "Confidence"},
+    "price":     {"ru": "Цена",           "en": "Price"},
+    "signal":    {"ru": "Сигнал",         "en": "Signal"},
+    "confidence":{"ru": "Уверенность",    "en": "Confidence"},
+    "entry_time":{"ru": "⏰ Время захода", "en": "⏰ Entry time"},
+    "expiry":    {"ru": "⌛ Экспирация",   "en": "⌛ Expiry"},
+    "tip":       {"ru": "💡 Совет",        "en": "💡 Tip"},
     "disclaimer":{"ru": "⚠️ _Только для анализа. Торговля — ваш риск._",
                   "en": "⚠️ _For analysis only. Trading is your risk._"},
-    "oversold":  {"ru": "Перепродан",    "en": "Oversold"},
-    "overbought":{"ru": "Перекуплен",    "en": "Overbought"},
-    "neutral":   {"ru": "Нейтрально",    "en": "Neutral"},
-    "bull_trend":{"ru": "Бычий тренд",   "en": "Bullish trend"},
-    "bear_trend":{"ru": "Медвежий тренд","en": "Bearish trend"},
-    "sideways":  {"ru": "Боковик",       "en": "Sideways"},
-    "bull_cross":{"ru": "Бычье пересечение","en": "Bullish crossover"},
-    "bear_cross":{"ru": "Медвежье пересечение","en": "Bearish crossover"},
-    "bull_candle":{"ru": "Бычья свеча",  "en": "Bullish candle"},
-    "bear_candle":{"ru": "Медвежья свеча","en": "Bearish candle"},
-    "call":  {"ru": "CALL 📈 — ПОКУПКА", "en": "CALL 📈 — BUY"},
-    "put":   {"ru": "PUT 📉 — ПРОДАЖА",  "en": "PUT 📉 — SELL"},
-    "wait":  {"ru": "⏸ ОЖИДАНИЕ",        "en": "⏸ WAIT"},
-    "all_header": {"ru": "📊 Все пары", "en": "📊 All pairs"},
-    "settings": {"ru": "⚙️ Язык", "en": "⚙️ Language"},
-    "unknown":{"ru": "❌ Неизвестная пара.", "en": "❌ Unknown pair."},
+    "oversold":  {"ru": "Перепродан",     "en": "Oversold"},
+    "overbought":{"ru": "Перекуплен",     "en": "Overbought"},
+    "neutral":   {"ru": "Нейтрально",     "en": "Neutral"},
+    "bull_trend":{"ru": "Бычий тренд",    "en": "Bullish trend"},
+    "bear_trend":{"ru": "Медвежий тренд", "en": "Bearish trend"},
+    "sideways":  {"ru": "Боковик",        "en": "Sideways"},
+    "bull_cross":{"ru": "Бычье пересечение", "en": "Bullish crossover"},
+    "bear_cross":{"ru": "Медвежье пересечение", "en": "Bearish crossover"},
+    "bull_candle":{"ru": "Бычья",         "en": "Bullish"},
+    "bear_candle":{"ru": "Медвежья",      "en": "Bearish"},
+    "call":      {"ru": "CALL 📈 — ПОКУПКА", "en": "CALL 📈 — BUY"},
+    "put":       {"ru": "PUT 📉 — ПРОДАЖА",  "en": "PUT 📉 — SELL"},
+    "wait":      {"ru": "⏸ ОЖИДАНИЕ",        "en": "⏸ WAIT"},
+    "all_header":{"ru": "📊 Все пары",    "en": "📊 All pairs"},
+    "unknown":   {"ru": "❌ Неизвестная пара.", "en": "❌ Unknown pair."},
+    # Советы по направлению
+    "tip_buy_ru": [
+        "Большинство индикаторов указывают вверх — входи по тренду.",
+        "RSI вышел из зоны перепроданности — хороший момент для CALL.",
+        "MA20 пробила MA50 снизу вверх — сигнал бычьего разворота.",
+        "MACD в положительной зоне, тренд подтверждён — открывай CALL.",
+        "Свеча закрылась выше предыдущей, импульс вверх — жди CALL.",
+    ],
+    "tip_sell_ru": [
+        "Индикаторы указывают вниз — входи против тренда осторожно.",
+        "RSI в зоне перекупленности — возможен откат, рассмотри PUT.",
+        "MA20 пробила MA50 сверху вниз — медвежий сигнал.",
+        "MACD ушёл в минус — давление продавцов усиливается.",
+        "Свеча закрылась ниже предыдущей — импульс вниз, рассмотри PUT.",
+    ],
+    "tip_wait_ru": [
+        "Сигналы противоречат друг другу — лучше подождать.",
+        "Рынок в боковике — нет чёткого направления, не торгуй.",
+        "Индикаторы в нейтральной зоне — жди более чёткого сигнала.",
+        "Слабая уверенность — пропусти этот вход, жди следующего.",
+    ],
+    "tip_buy_en": [
+        "Most indicators point up — trade with the trend.",
+        "RSI exited oversold zone — good moment for CALL.",
+        "MA20 crossed MA50 upward — bullish reversal signal.",
+        "MACD is positive, trend confirmed — open CALL.",
+        "Candle closed above previous — upward momentum, CALL.",
+    ],
+    "tip_sell_en": [
+        "Indicators point down — consider PUT carefully.",
+        "RSI in overbought zone — possible pullback, consider PUT.",
+        "MA20 crossed MA50 downward — bearish signal.",
+        "MACD went negative — selling pressure increasing.",
+        "Candle closed below previous — downward momentum, PUT.",
+    ],
+    "tip_wait_en": [
+        "Signals contradict each other — better to wait.",
+        "Market is sideways — no clear direction, skip trade.",
+        "Indicators in neutral zone — wait for clearer signal.",
+        "Low confidence — skip this entry, wait for next.",
+    ],
 }
 
 def t(key: str, uid: int) -> str:
     return T[key][lang(uid)]
 
+def get_tip(direction: str, uid: int) -> str:
+    ln = lang(uid)
+    key = f"tip_{direction}_{ln}"
+    if key in T:
+        return random.choice(T[key])
+    return ""
+
 # ─── Пары ─────────────────────────────────────────────────────
 PAIRS = {
-    # Форекс
-    "EUR/USD": {"base": 1.0842, "vol": 0.0008, "dec": 5, "cat": "forex"},
-    "GBP/USD": {"base": 1.2714, "vol": 0.0012, "dec": 5, "cat": "forex"},
-    "USD/JPY": {"base": 157.42, "vol": 0.15,   "dec": 3, "cat": "forex"},
-    "AUD/USD": {"base": 0.6634, "vol": 0.0007, "dec": 5, "cat": "forex"},
-    "USD/CAD": {"base": 1.3612, "vol": 0.0009, "dec": 5, "cat": "forex"},
-    "NZD/USD": {"base": 0.6124, "vol": 0.0007, "dec": 5, "cat": "forex"},
-    "EUR/JPY": {"base": 170.52, "vol": 0.18,   "dec": 3, "cat": "forex"},
-    "GBP/JPY": {"base": 199.84, "vol": 0.22,   "dec": 3, "cat": "forex"},
-    # OTC
+    "EUR/USD":     {"base": 1.0842, "vol": 0.0008, "dec": 5, "cat": "forex"},
+    "GBP/USD":     {"base": 1.2714, "vol": 0.0012, "dec": 5, "cat": "forex"},
+    "USD/JPY":     {"base": 157.42, "vol": 0.15,   "dec": 3, "cat": "forex"},
+    "AUD/USD":     {"base": 0.6634, "vol": 0.0007, "dec": 5, "cat": "forex"},
+    "USD/CAD":     {"base": 1.3612, "vol": 0.0009, "dec": 5, "cat": "forex"},
+    "NZD/USD":     {"base": 0.6124, "vol": 0.0007, "dec": 5, "cat": "forex"},
+    "EUR/JPY":     {"base": 170.52, "vol": 0.18,   "dec": 3, "cat": "forex"},
+    "GBP/JPY":     {"base": 199.84, "vol": 0.22,   "dec": 3, "cat": "forex"},
     "EUR/USD OTC": {"base": 1.0842, "vol": 0.0010, "dec": 5, "cat": "otc"},
     "GBP/USD OTC": {"base": 1.2714, "vol": 0.0014, "dec": 5, "cat": "otc"},
     "USD/JPY OTC": {"base": 157.42, "vol": 0.18,   "dec": 3, "cat": "otc"},
@@ -97,15 +136,26 @@ PAIRS = {
     "GBP/JPY OTC": {"base": 199.84, "vol": 0.25,   "dec": 3, "cat": "otc"},
     "USD/CAD OTC": {"base": 1.3612, "vol": 0.0011, "dec": 5, "cat": "otc"},
     "NZD/USD OTC": {"base": 0.6124, "vol": 0.0009, "dec": 5, "cat": "otc"},
-    # Крипто
-    "BTC/USD": {"base": 67540, "vol": 450, "dec": 1, "cat": "crypto"},
-    "ETH/USD": {"base": 3521,  "vol": 28,  "dec": 2, "cat": "crypto"},
-    "LTC/USD": {"base": 84.5,  "vol": 1.2, "dec": 2, "cat": "crypto"},
+    "BTC/USD":     {"base": 67540,  "vol": 450,    "dec": 1, "cat": "crypto"},
+    "ETH/USD":     {"base": 3521,   "vol": 28,     "dec": 2, "cat": "crypto"},
+    "LTC/USD":     {"base": 84.5,   "vol": 1.2,    "dec": 2, "cat": "crypto"},
 }
 
-TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1"]
+# Экспирация по таймфрейму
+EXPIRY = {
+    "S3":  {"ru": "3 секунды",  "en": "3 seconds"},
+    "S15": {"ru": "15 секунд",  "en": "15 seconds"},
+    "S30": {"ru": "30 секунд",  "en": "30 seconds"},
+    "M1":  {"ru": "1 минута",   "en": "1 minute"},
+    "M3":  {"ru": "3 минуты",   "en": "3 minutes"},
+    "M5":  {"ru": "5 минут",    "en": "5 minutes"},
+    "M30": {"ru": "30 минут",   "en": "30 minutes"},
+    "H1":  {"ru": "1 час",      "en": "1 hour"},
+    "H4":  {"ru": "4 часа",     "en": "4 hours"},
+}
 
-# ─── Генерация свечей ─────────────────────────────────────────
+TIMEFRAMES = ["S3", "S15", "S30", "M1", "M3", "M5", "M30", "H1", "H4"]
+
 def gen_candles(base: float, vol: float, n: int = 60) -> list[dict]:
     price = base * (0.997 + random.random() * 0.006)
     candles = []
@@ -127,8 +177,7 @@ def calc_rsi(closes: list[float], period: int = 14) -> float:
     avg_l = sum(losses) / period or 1e-9
     return 100 - 100 / (1 + avg_g / avg_l)
 
-# ─── Анализ ───────────────────────────────────────────────────
-def analyze(pair: str, uid: int) -> dict:
+def analyze(pair: str, uid: int, tf: str = "M5") -> dict:
     info = PAIRS[pair]
     candles = gen_candles(info["base"], info["vol"])
     closes = [c["c"] for c in candles]
@@ -141,81 +190,84 @@ def analyze(pair: str, uid: int) -> dict:
     prev = closes[-2]
     change = (last - prev) / prev * 100
 
+    ln = lang(uid)
     reasons = [
-        {
-            "name":  "RSI (14)",
-            "value": f"{rsi:.0f}",
-            "dir":   "up" if rsi < 45 else ("dn" if rsi > 60 else "nt"),
-            "hint":  t("oversold", uid) if rsi < 45 else (t("overbought", uid) if rsi > 60 else t("neutral", uid)),
-        },
-        {
-            "name":  "MA20 / MA50",
-            "value": f"{ma20:.{info['dec']}f} / {ma50:.{info['dec']}f}",
-            "dir":   "up" if ma20 > ma50 else ("dn" if ma20 < ma50 else "nt"),
-            "hint":  t("bull_trend", uid) if ma20 > ma50 else (t("bear_trend", uid) if ma20 < ma50 else t("sideways", uid)),
-        },
-        {
-            "name":  "MACD",
-            "value": f"{macd:+.5f}",
-            "dir":   "up" if macd > 0 else ("dn" if macd < 0 else "nt"),
-            "hint":  t("bull_cross", uid) if macd > 0 else t("bear_cross", uid),
-        },
-        {
-            "name":  "Candle" if lang(uid) == "en" else "Свеча",
-            "value": t("bull_candle", uid) if last > prev else t("bear_candle", uid),
-            "dir":   "up" if last > prev else "dn",
-            "hint":  ("Close above prev" if lang(uid) == "en" else "Закрытие выше") if last > prev
-                     else ("Close below prev" if lang(uid) == "en" else "Закрытие ниже"),
-        },
+        {"name": "RSI (14)", "value": f"{rsi:.0f}",
+         "dir": "up" if rsi < 45 else ("dn" if rsi > 60 else "nt"),
+         "hint": t("oversold", uid) if rsi < 45 else (t("overbought", uid) if rsi > 60 else t("neutral", uid))},
+        {"name": "MA20 / MA50", "value": f"{ma20:.{info['dec']}f} / {ma50:.{info['dec']}f}",
+         "dir": "up" if ma20 > ma50 else ("dn" if ma20 < ma50 else "nt"),
+         "hint": t("bull_trend", uid) if ma20 > ma50 else (t("bear_trend", uid) if ma20 < ma50 else t("sideways", uid))},
+        {"name": "MACD", "value": f"{macd:+.5f}",
+         "dir": "up" if macd > 0 else ("dn" if macd < 0 else "nt"),
+         "hint": t("bull_cross", uid) if macd > 0 else t("bear_cross", uid)},
+        {"name": "Candle" if ln == "en" else "Свеча",
+         "value": t("bull_candle", uid) if last > prev else t("bear_candle", uid),
+         "dir": "up" if last > prev else "dn",
+         "hint": ("Close ↑" if ln == "en" else "Закрытие ↑") if last > prev else ("Close ↓" if ln == "en" else "Закрытие ↓")},
     ]
 
     score = sum(1 if r["dir"] == "up" else (-1 if r["dir"] == "dn" else 0) for r in reasons)
     conf  = min(95, max(35, 50 + score * 12 + random.uniform(-5, 5)))
     direction = "buy" if score >= 2 else ("sell" if score <= -2 else "wait")
 
+    # Время захода — текущее UTC+3 (Киев)
+    now = datetime.now(timezone(timedelta(hours=3)))
+    entry_time = now.strftime("%H:%M")
+    entry_date = now.strftime("%d.%m.%Y")
+
     return {
         "pair": pair, "price": f"{last:.{info['dec']}f}",
         "change": change, "rsi": rsi, "conf": conf,
         "direction": direction, "reasons": reasons,
-        "cat": info["cat"],
+        "cat": info["cat"], "tf": tf,
+        "entry_time": entry_time, "entry_date": entry_date,
+        "expiry": EXPIRY.get(tf, {"ru": tf, "en": tf})[ln],
+        "tip": get_tip(direction, uid),
     }
 
-# ─── Форматирование сообщения ─────────────────────────────────
-def format_signal(data: dict, tf: str, uid: int) -> str:
+def format_signal(data: dict, uid: int) -> str:
     d = data
+    ln = lang(uid)
     is_otc = "OTC" in d["pair"]
-    otc_badge = " 🕐OTC" if is_otc else ""
+    otc_badge = " 🕐" if is_otc else ""
 
     if d["direction"] == "buy":
         sig_line = f"🟢 *{t('call', uid)}*"
-        bar_fill = "🟩"
+        bar_fill, empty = "🟩", "⬜"
     elif d["direction"] == "sell":
         sig_line = f"🔴 *{t('put', uid)}*"
-        bar_fill = "🟥"
+        bar_fill, empty = "🟥", "⬜"
     else:
         sig_line = f"⚪ *{t('wait', uid)}*"
-        bar_fill = "⬜"
+        bar_fill, empty = "▪️", "▫️"
 
     conf_pct = int(d["conf"])
     filled = round(conf_pct / 10)
-    bar = bar_fill * filled + "▪️" * (10 - filled)
+    bar = bar_fill * filled + empty * (10 - filled)
 
     chg = f"+{d['change']:.2f}%" if d["change"] >= 0 else f"{d['change']:.2f}%"
     icons = {"up": "🟢", "dn": "🔴", "nt": "⚪"}
 
     lines = [
-        f"┌─────────────────────────┐",
-        f"│  📊 {d['pair']}{otc_badge} │ ⏱ {tf}",
-        f"└─────────────────────────┘",
+        f"╔══════════════════════════╗",
+        f"║  {d['pair']}{otc_badge}  │  ⏱ {d['tf']}",
+        f"╚══════════════════════════╝",
         f"",
         f"💰 *{t('price', uid)}:* `{d['price']}` ({chg})",
         f"📈 *{t('signal', uid)}:* {sig_line}",
         f"🎯 *{t('confidence', uid)}:* {bar} {conf_pct}%",
         f"",
+        f"⏰ *{t('entry_time', uid)}:* `{d['entry_time']}` ({d['entry_date']})",
+        f"⌛ *{t('expiry', uid)}:* `{d['expiry']}`",
+        f"",
         f"━━━ {t('indicators', uid)} ━━━",
     ]
     for r in d["reasons"]:
         lines.append(f"{icons[r['dir']]} *{r['name']}:* `{r['value']}` — _{r['hint']}_")
+
+    if d["tip"]:
+        lines += ["", f"💡 _{d['tip']}_"]
 
     lines += ["", t("disclaimer", uid)]
     return "\n".join(lines)
@@ -241,7 +293,7 @@ def cat_keyboard(cat: str, uid: int) -> InlineKeyboardMarkup:
     pairs = [p for p, v in PAIRS.items() if v["cat"] == cat]
     rows = []
     row = []
-    for i, p in enumerate(pairs):
+    for p in pairs:
         row.append(InlineKeyboardButton(p, callback_data=f"pair:{p}:M5"))
         if len(row) == 2:
             rows.append(row); row = []
@@ -251,16 +303,20 @@ def cat_keyboard(cat: str, uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 def tf_keyboard(pair: str, uid: int) -> InlineKeyboardMarkup:
-    btns = [[InlineKeyboardButton(tf, callback_data=f"pair:{pair}:{tf}") for tf in TIMEFRAMES]]
-    btns.append([InlineKeyboardButton(t("back", uid), callback_data="back")])
-    return InlineKeyboardMarkup(btns)
+    rows = []
+    row = []
+    for tf in TIMEFRAMES:
+        row.append(InlineKeyboardButton(tf, callback_data=f"pair:{pair}:{tf}"))
+        if len(row) == 3:
+            rows.append(row); row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(t("back", uid), callback_data="back")])
+    return InlineKeyboardMarkup(rows)
 
 # ─── Handlers ─────────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        T["welcome"]["ru"],
-        reply_markup=lang_keyboard(),
-    )
+    await update.message.reply_text(T["welcome"]["ru"], reply_markup=lang_keyboard())
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -270,70 +326,49 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("setlang:"):
         USER_LANG[uid] = data.split(":")[1]
-        await query.edit_message_text(
-            t("menu_title", uid),
-            parse_mode="Markdown",
-            reply_markup=main_keyboard(uid),
-        )
+        await query.edit_message_text(t("menu_title", uid), parse_mode="Markdown",
+                                      reply_markup=main_keyboard(uid))
         return
 
     if data == "settings":
-        await query.edit_message_text(
-            T["welcome"]["ru"],
-            reply_markup=lang_keyboard(),
-        )
+        await query.edit_message_text(T["welcome"]["ru"], reply_markup=lang_keyboard())
         return
 
     if data == "back":
-        await query.edit_message_text(
-            t("menu_title", uid),
-            parse_mode="Markdown",
-            reply_markup=main_keyboard(uid),
-        )
+        await query.edit_message_text(t("menu_title", uid), parse_mode="Markdown",
+                                      reply_markup=main_keyboard(uid))
         return
 
     if data.startswith("cat:"):
         cat = data.split(":")[1]
-        await query.edit_message_text(
-            t("choose_tf", uid),
-            reply_markup=cat_keyboard(cat, uid),
-        )
+        await query.edit_message_text(t("choose_tf", uid), reply_markup=cat_keyboard(cat, uid))
         return
 
     if data.startswith("all:"):
         tf = data.split(":")[1]
+        ln = lang(uid)
         lines = [f"*{t('all_header', uid)} — {tf}*\n"]
         for pair in PAIRS:
-            d = analyze(pair, uid)
+            d = analyze(pair, uid, tf)
             chg = f"+{d['change']:.2f}%" if d["change"] >= 0 else f"{d['change']:.2f}%"
             icon = "🟢" if d["direction"] == "buy" else ("🔴" if d["direction"] == "sell" else "⚪")
-            sig = t("call", uid).split(" ")[0] if d["direction"] == "buy" else (
-                  t("put", uid).split(" ")[0] if d["direction"] == "sell" else "⏸")
+            sig = "CALL" if d["direction"] == "buy" else ("PUT" if d["direction"] == "sell" else "⏸")
             lines.append(f"{icon} *{pair}* `{d['price']}` ({chg}) — {sig} {int(d['conf'])}%")
-        lines.append(f"\n{t('disclaimer', uid)}")
-        await query.edit_message_text(
-            "\n".join(lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(t("back", uid), callback_data="back")]
-            ]),
-        )
+        lines.append(f"\n⏰ {d['entry_time']} | {t('disclaimer', uid)}")
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("back", uid), callback_data="back")]]))
         return
 
     if data.startswith("pair:"):
         parts = data.split(":")
-        # pair может содержать "/" и пробелы — берём всё кроме последнего элемента
         tf = parts[-1]
         pair = ":".join(parts[1:-1])
         if pair not in PAIRS:
             await query.answer(t("unknown", uid))
             return
-        d = analyze(pair, uid)
-        await query.edit_message_text(
-            format_signal(d, tf, uid),
-            parse_mode="Markdown",
-            reply_markup=tf_keyboard(pair, uid),
-        )
+        d = analyze(pair, uid, tf)
+        await query.edit_message_text(format_signal(d, uid), parse_mode="Markdown",
+                                      reply_markup=tf_keyboard(pair, uid))
 
 # ─── Запуск ───────────────────────────────────────────────────
 def main():
