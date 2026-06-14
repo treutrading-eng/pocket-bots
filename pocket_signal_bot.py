@@ -4,7 +4,7 @@ TREU AI — Trading Signal Bot
 import os, io, logging, random
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -196,7 +196,7 @@ def main_kb(uid):
 def signal_kb(uid):
     ln = lang(uid)
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 " + ("RECEIVE A SIGNAL" if ln=="en" else "ПОЛУЧИТЬ СИГНАЛ"), callback_data="get_signal")],
+        [InlineKeyboardButton("📊 " + ("RECEIVE A SIGNAL" if ln=="en" else "ПОЛУЧИТЬ СИГНАЛ"), web_app=WebAppInfo(url="https://treutrading-eng.github.io/pocket-bots/miniapp.html"))],
         [InlineKeyboardButton("🏠 " + ("HOME PAGE" if ln=="en" else "ГЛАВНАЯ"), callback_data="home")],
     ])
 
