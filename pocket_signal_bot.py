@@ -32,11 +32,13 @@ def make_welcome_img():
     return buf
 
 def make_signal_img(direction):
-    W, H = 800, 300
-    img = Image.new("RGB", (W, H), (5,10,25))
+    # Use uploaded receive.jpg as background
+    try:
+        img = Image.open("/mnt/user-data/uploads/receive.jpg").convert("RGB")
+        img = img.resize((800, 300), Image.LANCZOS)
+    except:
+        img = Image.new("RGB", (800, 300), (5,10,25))
     draw = ImageDraw.Draw(img)
-    for y in range(H):
-        draw.line([(0,y),(W,y)], fill=(int(5+15*y/H), int(10+25*y/H), int(25+50*y/H)))
     color = (0,200,100) if direction == "buy" else (220,50,50)
     text = "▲ BUY" if direction == "buy" else "▼ SELL"
     try:
@@ -44,16 +46,24 @@ def make_signal_img(direction):
         font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
     except:
         font = font_sub = ImageFont.load_default()
+    W, H = img.size
     bb = draw.textbbox((0,0), text, font=font)
     tw = bb[2]-bb[0]
     draw.text(((W-tw)//2+3, H//2-55+3), text, fill=(0,0,0), font=font)
     draw.text(((W-tw)//2, H//2-55), text, fill=color, font=font)
-    sub = "RECEIVE A SIGNAL"
-    bb2 = draw.textbbox((0,0), sub, font=font_sub)
-    sw = bb2[2]-bb2[0]
-    draw.text(((W-sw)//2, H//2+30), sub, fill=(150,150,180), font=font_sub)
     buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
     return buf
+
+def make_receive_img():
+    try:
+        import urllib.request
+        url = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
+        with urllib.request.urlopen(url) as r:
+            data = r.read()
+        buf = io.BytesIO(data); buf.seek(0)
+        return buf
+    except:
+        return make_welcome_img()
 
 # ── Pairs & Analysis ──────────────────────────────────────────
 PAIRS = {
@@ -148,14 +158,9 @@ def welcome_text(uid):
     )
 
 def congrats_text(uid):
-    if lang(uid) == "en":
-        return (
-            "🏆 *Congratulations* — you can now start receiving signals!\n\n"
-            "Click the *\"Receive a signal\"* button and start earning with AI-powered trading."
-        )
     return (
-        "🏆 *Поздравляем* — теперь вы можете получать сигналы!\n\n"
-        "Нажмите кнопку *«Получить сигнал»* и начните зарабатывать с AI-трейдингом."
+        "⚡ *Congratulations!* Your signal access has been unlocked.\n\n"
+        "Press *\"Receive a Signal\"* to get your first AI-powered trading signal."
     )
 
 def signal_text(d, uid):
@@ -189,7 +194,7 @@ def main_kb(uid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 " + ("START TRADING" if ln=="en" else "НАЧАТЬ ТОРГОВЛЮ"), callback_data="start_trading")],
         [InlineKeyboardButton("📊 " + ("VIEW RESULTS" if ln=="en" else "СМОТРЕТЬ РЕЗУЛЬТАТЫ"), callback_data="results")],
-        [InlineKeyboardButton("🆘 Support", url="https://t.me/treu_support")],
+        [InlineKeyboardButton("🆘 " + ("SUPPORT" if ln=="en" else "ПОДДЕРЖКА"), url="https://t.me/treu_support")],
     ])
 
 def signal_kb(uid):
@@ -270,7 +275,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "start_trading":
-        img = make_signal_img("buy")
+        img = make_receive_img()
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
