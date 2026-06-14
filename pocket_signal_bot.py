@@ -137,16 +137,14 @@ def analyze(pair, tf, uid):
 def welcome_text(uid):
     if lang(uid) == "en":
         return (
-            "👋 *Welcome to TREU AI*\n\n"
-            "💎 We are a team of traders who have developed the best *free trading signal bot*.\n\n"
-            "🚀 Our bot uses *4 AI systems* — RSI, MACD, MA and Price Action — "
-            "which allows it to analyze the market and deliver significantly more accurate trading signals."
+            "👋 *Welcome to TREU TRADING AI*\n\n"
+            "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
+            "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
         )
     return (
-        "👋 *Добро пожаловать в TREU AI*\n\n"
-        "💎 Мы команда трейдеров, которая разработала лучший *бесплатный бот торговых сигналов*.\n\n"
-        "🚀 Наш бот использует *4 AI системы* — RSI, MACD, MA и Price Action — "
-        "что позволяет анализировать рынок и давать максимально точные торговые сигналы."
+        "👋 *Welcome to TREU TRADING AI*\n\n"
+        "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
+        "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
     )
 
 def congrats_text(uid):
@@ -191,6 +189,7 @@ def main_kb(uid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 " + ("START TRADING" if ln=="en" else "НАЧАТЬ ТОРГОВЛЮ"), callback_data="start_trading")],
         [InlineKeyboardButton("📊 " + ("VIEW RESULTS" if ln=="en" else "СМОТРЕТЬ РЕЗУЛЬТАТЫ"), callback_data="results")],
+        [InlineKeyboardButton("🆘 Support", url="https://t.me/treu_support")],
     ])
 
 def signal_kb(uid):
