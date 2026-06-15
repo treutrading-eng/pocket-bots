@@ -239,9 +239,14 @@ def tf_kb(pair, uid):
 
 # ── Handlers ─────────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🌐 Выберите язык / Choose language:",
-        reply_markup=lang_kb()
+    uid = update.message.from_user.id
+    USER_LANG[uid] = "en"
+    img = make_welcome_img()
+    await update.message.reply_photo(
+        photo=img,
+        caption=welcome_text(uid),
+        parse_mode="Markdown",
+        reply_markup=main_kb(uid)
     )
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
