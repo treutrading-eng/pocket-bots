@@ -260,7 +260,7 @@ var UI={
   instrument:{en:'Instrument',ru:'Инструмент',es:'Instrumento',pt:'Instrumento',tr:'Enstrüman'},
   timeframe:{en:'Timeframe',ru:'Таймфрейм',es:'Tiempo',pt:'Tempo',tr:'Zaman'},
   signal:{en:'Signal',ru:'Сигнал',es:'Señal',pt:'Sinal',tr:'Sinyal'},
-  getSignal:{en:'▶ Get Signal',ru:'▶ Получить сигнал',es:'▶ Obtener señal',pt:'▶ Obter sinal',tr:'▶ Sinyal al'},
+  getSignal:{en:'▶ New Analysis',ru:'▶ Новый анализ',es:'▶ Nuevo análisis',pt:'▶ Nova análise',tr:'▶ Yeni analiz'},
   analyzing:{en:'Analyzing...',ru:'Анализ...',es:'Analizando...',pt:'Analisando...',tr:'Analiz...'},
   regular:{en:'Regular',ru:'Обычные',es:'Regular',pt:'Regular',tr:'Normal'},
   entry:{en:'Entry',ru:'Вход',es:'Entrada',pt:'Entrada',tr:'Giriş'},
@@ -387,6 +387,8 @@ function getSignal(){
   btn.disabled=true;
   btn.innerHTML='<div class="spinner"></div>';
   body.innerHTML='<div class="empty-state">'+tr('analyzing')+'</div>';
+  var cardEl=document.querySelector('.signal-card');
+  cardEl.style.borderColor='';cardEl.style.boxShadow='';
 
   setTimeout(function(){
     var d=analyze(pair,tf);
@@ -398,6 +400,15 @@ function getSignal(){
     var label=tr(dc);
     var accColor=dc==='buy'?'green':'red';
     var valColor=dc==='buy'?'green':'red';
+
+    var cardEl = document.querySelector('.signal-card');
+    if(dc === 'buy') {
+      cardEl.style.borderColor = 'rgba(0,208,132,0.4)';
+      cardEl.style.boxShadow = '0 0 30px rgba(0,208,132,0.15)';
+    } else {
+      cardEl.style.borderColor = 'rgba(255,77,77,0.4)';
+      cardEl.style.boxShadow = '0 0 30px rgba(255,77,77,0.15)';
+    }
 
     body.innerHTML=
       '<div class="signal-result">'+
