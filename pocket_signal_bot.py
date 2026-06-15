@@ -14,56 +14,21 @@ USER_LANG: dict[int, str] = {}
 def lang(uid): return USER_LANG.get(uid, "ru")
 
 # ── Images ────────────────────────────────────────────────────
-def make_welcome_img():
-    W, H = 800, 400
-    img = Image.new("RGB", (W, H), (10, 15, 35))
-    draw = ImageDraw.Draw(img)
-    for y in range(H):
-        r = int(10 + 15*y/H); g = int(15 + 20*y/H); b = int(35 + 40*y/H)
-        draw.line([(0,y),(W,y)], fill=(r,g,b))
-    candles = [(220,120,280),(320,80,310),(420,100,290)]
-    for cx, top, bot in candles:
-        for glow in range(6,0,-1):
-            draw.rectangle([cx-20-glow,top-glow,cx+20+glow,bot+glow], fill=(30+glow*5,100+glow*10,220))
-        draw.rectangle([cx-20,top,cx+20,bot], fill=(60,160,255))
-        draw.line([(cx,top-20),(cx,top)], fill=(120,190,255), width=3)
-        draw.line([(cx,bot),(cx,bot+20)], fill=(120,190,255), width=3)
-    buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
-    return buf
+WELCOME_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
+RECEIVE_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
 
-def make_signal_img(direction):
-    # Use uploaded receive.jpg as background
-    try:
-        img = Image.open("/mnt/user-data/uploads/receive.jpg").convert("RGB")
-        img = img.resize((800, 300), Image.LANCZOS)
-    except:
-        img = Image.new("RGB", (800, 300), (5,10,25))
-    draw = ImageDraw.Draw(img)
-    color = (0,200,100) if direction == "buy" else (220,50,50)
-    text = "▲ BUY" if direction == "buy" else "▼ SELL"
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
-        font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-    except:
-        font = font_sub = ImageFont.load_default()
-    W, H = img.size
-    bb = draw.textbbox((0,0), text, font=font)
-    tw = bb[2]-bb[0]
-    draw.text(((W-tw)//2+3, H//2-55+3), text, fill=(0,0,0), font=font)
-    draw.text(((W-tw)//2, H//2-55), text, fill=color, font=font)
-    buf = io.BytesIO(); img.save(buf, "PNG"); buf.seek(0)
-    return buf
+def make_welcome_img():
+    return WELCOME_IMG_URL
 
 def make_receive_img():
-    try:
-        import urllib.request
-        url = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
-        with urllib.request.urlopen(url) as r:
-            data = r.read()
-        buf = io.BytesIO(data); buf.seek(0)
-        return buf
-    except:
-        return make_welcome_img()
+    return RECEIVE_IMG_URL
+
+def make_signal_img(direction):
+    color_name = "green" if direction == "buy" else "red"
+    return RECEIVE_IMG_URL
+
+def make_receive_img():
+    return RECEIVE_IMG_URL
 
 # ── Pairs & Analysis ──────────────────────────────────────────
 PAIRS = {
