@@ -292,10 +292,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "results":
-        ln = lang(uid)
-        text = "📊 *Results / Результаты*\n\n_Coming soon..._" if ln=="en" else "📊 *Результаты*\n\n_Скоро..._"
-        await q.message.chat.send_message(text, parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀ Назад / Back", callback_data="home")]]))
+        await q.message.chat.send_message(
+            "📊 *Results*\n\n⏳ Your results are currently being processed. Please check back soon.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data="home")]]))
         return
 
     if data == "get_signal":
