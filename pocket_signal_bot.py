@@ -1,7 +1,7 @@
 """
 TREU AI — Trading Signal Bot
 """
-import os, io, logging, random
+import os, io, logging, random, time
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
@@ -14,21 +14,14 @@ USER_LANG: dict[int, str] = {}
 def lang(uid): return USER_LANG.get(uid, "ru")
 
 # ── Images ────────────────────────────────────────────────────
-WELCOME_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
-RECEIVE_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
-
 def make_welcome_img():
-    return WELCOME_IMG_URL
+    return f"https://treutrading-eng.github.io/pocket-bots/welcome.jpg?v={int(time.time())}"
 
 def make_receive_img():
-    return RECEIVE_IMG_URL
+    return f"https://treutrading-eng.github.io/pocket-bots/receive.jpg?v={int(time.time())}"
 
 def make_signal_img(direction):
-    color_name = "green" if direction == "buy" else "red"
-    return RECEIVE_IMG_URL
-
-def make_receive_img():
-    return RECEIVE_IMG_URL
+    return f"https://treutrading-eng.github.io/pocket-bots/receive.jpg?v={int(time.time())}"
 
 # ── Pairs & Analysis ──────────────────────────────────────────
 PAIRS = {
