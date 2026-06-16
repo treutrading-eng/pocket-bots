@@ -1,7 +1,8 @@
 """
 TREU AI — Trading Signal Bot
+с проверкой регистрации и депозита через PocketPartners API
 """
-import os, io, logging, random, time
+import os, io, logging, random, hashlib, aiohttp
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
@@ -10,18 +11,57 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 
+# ── PocketPartners настройки ──────────────────────────────────
+# Замени на свои реальные данные
+POCKET_PARTNER_ID = os.getenv("POCKET_PARTNER_ID", "ВАШ_PARTNER_ID")
+POCKET_API_TOKEN  = os.getenv("POCKET_API_TOKEN",  "ВАШ_API_TOKEN")
+POCKET_REF_LINK   = os.getenv("POCKET_REF_LINK",   "ВАША_РЕФЕРАЛЬНАЯ_ССЫЛКА")  # ссылка для регистрации
+POCKET_API_BASE   = "https://pocketpartners.com/api/user-info"
+
+def _pocket_hash(user_id: str) -> str:
+    raw = f"{user_id}{POCKET_PARTNER_ID}{POCKET_API_TOKEN}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+async def check_pocket_user(telegram_id: int) -> dict | None:
+    """Запрос к PocketPartners API. Возвращает dict или None при ошибке."""
+    uid = str(telegram_id)
+    url = f"{POCKET_API_BASE}/{uid}/{POCKET_PARTNER_ID}/{_pocket_hash(uid)}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                logging.warning(f"[PocketPartners] HTTP {resp.status} для user {uid}")
+                return None
+    except Exception as e:
+        logging.error(f"[PocketPartners] Ошибка запроса: {e}")
+        return None
+
+async def is_verified(telegram_id: int) -> tuple[bool, bool]:
+    """
+    Возвращает (is_registered, has_deposit).
+    ⚠️ Замени ключи "registered" и "deposited" на реальные поля из ответа API.
+    """
+    data = await check_pocket_user(telegram_id)
+    if data is None:
+        return False, False
+    # Подстрой ключи под реальный ответ PocketPartners
+    registered = bool(data.get("registered", False))
+    deposited  = bool(data.get("deposited",  False))
+    return registered, deposited
+
+# ─────────────────────────────────────────────────────────────
+
 USER_LANG: dict[int, str] = {}
 def lang(uid): return USER_LANG.get(uid, "ru")
 
 # ── Images ────────────────────────────────────────────────────
-def make_welcome_img():
-    return f"https://treutrading-eng.github.io/pocket-bots/welcome.jpg?v={int(time.time())}"
+WELCOME_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
+RECEIVE_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
 
-def make_receive_img():
-    return f"https://treutrading-eng.github.io/pocket-bots/receive.jpg?v={int(time.time())}"
-
-def make_signal_img(direction):
-    return f"https://treutrading-eng.github.io/pocket-bots/receive.jpg?v={int(time.time())}"
+def make_welcome_img():  return WELCOME_IMG_URL
+def make_receive_img():  return RECEIVE_IMG_URL
+def make_signal_img(direction): return RECEIVE_IMG_URL
 
 # ── Pairs & Analysis ──────────────────────────────────────────
 PAIRS = {
@@ -74,7 +114,6 @@ def analyze(pair, tf, uid):
     info = PAIRS[pair]
     candles = gen_candles(info["base"], info["vol"])
     closes = [c["c"] for c in candles]
-    n = len(closes)
     rsi = calc_rsi(closes)
     ma20 = sum(closes[-20:])/20; ma50 = sum(closes[-50:])/50
     macd = sum(closes[-12:])/12 - sum(closes[-26:])/26
@@ -103,12 +142,6 @@ def analyze(pair, tf, uid):
 
 # ── Text ──────────────────────────────────────────────────────
 def welcome_text(uid):
-    if lang(uid) == "en":
-        return (
-            "👋 *Welcome to TREU TRADING AI*\n\n"
-            "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
-            "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
-        )
     return (
         "👋 *Welcome to TREU TRADING AI*\n\n"
         "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
@@ -140,6 +173,41 @@ def signal_text(d, uid):
         f"⚠️ _{'For analysis only. Trading is your risk.' if ln=='en' else 'Только для анализа. Торговля — ваш риск.'}_"
     )
 
+# ── Access denied texts ───────────────────────────────────────
+def not_registered_text(uid):
+    ln = lang(uid)
+    if ln == "en":
+        return (
+            "🔒 *Access Denied*\n\n"
+            "To use this bot you need to:\n"
+            "1️⃣ Register via the referral link\n"
+            "2️⃣ Make a deposit\n\n"
+            "After completing both steps, press /start again."
+        )
+    return (
+        "🔒 *Доступ закрыт*\n\n"
+        "Для использования бота необходимо:\n"
+        "1️⃣ Зарегистрироваться по реферальной ссылке\n"
+        "2️⃣ Внести депозит\n\n"
+        "После выполнения обоих шагов нажмите /start снова."
+    )
+
+def no_deposit_text(uid):
+    ln = lang(uid)
+    if ln == "en":
+        return (
+            "✅ *Registration confirmed!*\n\n"
+            "⚠️ No deposit detected yet.\n\n"
+            "Please make a deposit to unlock full access to the bot.\n"
+            "After depositing, press /start again."
+        )
+    return (
+        "✅ *Регистрация подтверждена!*\n\n"
+        "⚠️ Депозит не обнаружен.\n\n"
+        "Пожалуйста, внесите депозит для получения доступа к боту.\n"
+        "После пополнения нажмите /start снова."
+    )
+
 # ── Keyboards ─────────────────────────────────────────────────
 def lang_kb():
     return InlineKeyboardMarkup([[
@@ -154,6 +222,15 @@ def main_kb(uid):
         [InlineKeyboardButton("📊 " + ("VIEW RESULTS" if ln=="en" else "СМОТРЕТЬ РЕЗУЛЬТАТЫ"), callback_data="results")],
         [InlineKeyboardButton("🆘 " + ("SUPPORT" if ln=="en" else "ПОДДЕРЖКА"), url="https://t.me/treu_support")],
     ])
+
+def register_kb(uid):
+    ln = lang(uid)
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "📝 " + ("Register" if ln=="en" else "Зарегистрироваться"),
+            url=POCKET_REF_LINK
+        )
+    ]])
 
 def signal_kb(uid):
     ln = lang(uid)
@@ -195,13 +272,35 @@ def tf_kb(pair, uid):
     rows.append([InlineKeyboardButton("◀ " + ("Back" if ln=="en" else "Назад"), callback_data="get_signal")])
     return InlineKeyboardMarkup(rows)
 
-# ── Handlers ─────────────────────────────────────────────────
+# ── Handlers ──────────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     USER_LANG[uid] = "en"
-    img = make_welcome_img()
+
+    # ── Проверка регистрации и депозита ──────────────────────
+    registered, deposited = await is_verified(uid)
+
+    if not registered:
+        await update.message.reply_photo(
+            photo=make_welcome_img(),
+            caption=not_registered_text(uid),
+            parse_mode="Markdown",
+            reply_markup=register_kb(uid)
+        )
+        return
+
+    if not deposited:
+        await update.message.reply_photo(
+            photo=make_welcome_img(),
+            caption=no_deposit_text(uid),
+            parse_mode="Markdown",
+            reply_markup=register_kb(uid)
+        )
+        return
+    # ─────────────────────────────────────────────────────────
+
     await update.message.reply_photo(
-        photo=img,
+        photo=make_welcome_img(),
         caption=welcome_text(uid),
         parse_mode="Markdown",
         reply_markup=main_kb(uid)
@@ -213,12 +312,24 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     data = q.data
 
+    # ── Проверка на всех callback кроме lang ─────────────────
+    if not data.startswith("lang:"):
+        registered, deposited = await is_verified(uid)
+        if not registered or not deposited:
+            caption = not_registered_text(uid) if not registered else no_deposit_text(uid)
+            await q.message.chat.send_message(
+                caption,
+                parse_mode="Markdown",
+                reply_markup=register_kb(uid)
+            )
+            return
+    # ─────────────────────────────────────────────────────────
+
     if data.startswith("lang:"):
         USER_LANG[uid] = data.split(":")[1]
-        img = make_welcome_img()
         await q.message.delete()
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_welcome_img(),
             caption=welcome_text(uid),
             parse_mode="Markdown",
             reply_markup=main_kb(uid)
@@ -226,11 +337,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "home":
-        img = make_welcome_img()
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_welcome_img(),
             caption=welcome_text(uid),
             parse_mode="Markdown",
             reply_markup=main_kb(uid)
@@ -238,11 +348,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "start_trading":
-        img = make_receive_img()
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_receive_img(),
             caption=congrats_text(uid),
             parse_mode="Markdown",
             reply_markup=signal_kb(uid)
@@ -259,7 +368,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data == "get_signal":
         ln = lang(uid)
         await q.message.chat.send_message(
-            "🌍 *Выберите категорию / Choose category:*" if ln=="ru" else "🌍 *Choose category:*",
+            "🌍 *Choose category:*",
             parse_mode="Markdown",
             reply_markup=pair_cat_kb(uid)
         )
@@ -267,9 +376,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("cat:"):
         cat = data.split(":")[1]
-        ln = lang(uid)
         await q.message.chat.send_message(
-            "💱 *Выберите пару / Choose pair:*" if ln=="ru" else "💱 *Choose pair:*",
+            "💱 *Choose pair:*",
             parse_mode="Markdown",
             reply_markup=pairs_kb(cat, uid)
         )
@@ -277,9 +385,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("pair:"):
         pair = data[5:]
-        ln = lang(uid)
         await q.message.chat.send_message(
-            "⏱ *Выберите таймфрейм:*" if ln=="ru" else "⏱ *Choose timeframe:*",
+            "⏱ *Choose timeframe:*",
             parse_mode="Markdown",
             reply_markup=tf_kb(pair, uid)
         )
@@ -289,11 +396,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parts = data.split(":")
         tf = parts[-1]; pair = ":".join(parts[1:-1])
         d = analyze(pair, tf, uid)
-        img = make_signal_img(d["direction"])
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_signal_img(d["direction"]),
             caption=signal_text(d, uid),
             parse_mode="Markdown",
             reply_markup=signal_kb(uid)
