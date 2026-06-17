@@ -211,9 +211,9 @@ def signal_text(d, uid):
 # ── Step texts ────────────────────────────────────────────────
 def step1_text():
     return (
-        "First, you need to register with the broker using the button below\n\n"
-        "If you already had an account, you must create a new one, otherwise the bot won't be able to identify you and you won't be able to receive signals.\n\n"
-        "After that, press the button \"Registration completed\""
+        "First, register with the broker using the button below.\n\n"
+        "If you already have an account, create a new one so the bot can verify your registration and enable access to signals.\n\n"
+        "After registration, click \"Registration completed\"."
     )
 
 def ask_id_text():
@@ -224,10 +224,9 @@ def ask_id_text():
 
 def reg_ok_text():
     return (
-        "You have successfully registered!\n\n"
-        "Now you have one last step left: top up your balance with any amount (we recommend starting with $50 or $100, but $10 also works).\n\n"
-        "We need to understand that you are really serious about working. We cannot give access to the trading bot to everyone who wants it.\n\n"
-        "After topping up, press the button \"Deposit completed\""
+        "Registration completed! ✅\n\n"
+        "Final step: make a deposit to activate access to the trading bot.\n\n"
+        "After completing the deposit, click \"Deposit completed\"."
     )
 
 def reg_fail_text():
