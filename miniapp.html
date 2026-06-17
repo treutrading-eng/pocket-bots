@@ -1,469 +1,318 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>TREU AI</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-:root{
-  --bg:#0d0d14;
-  --surface:#16161f;
-  --border:#252535;
-  --green:#00d084;
-  --green2:#00c853;
-  --red:#ff4d4d;
-  --red2:#d50000;
-  --blue:#2481cc;
-  --text:#f0f0f0;
-  --muted:#777;
-  --radius:14px;
-}
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{
-  background:var(--bg);
-  color:var(--text);
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  min-height:100vh;
-  padding-bottom:40px;
-  overflow-x:hidden;
-}
+"""
+TREU AI — Trading Signal Bot
+"""
+import os, io, logging, random
+from datetime import datetime, timezone, timedelta
+from PIL import Image, ImageDraw, ImageFont
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-/* Animated background */
-body::before{
-  content:'';
-  position:fixed;top:0;left:0;right:0;bottom:0;
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(0,200,83,0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(41,121,255,0.06) 0%, transparent 50%);
-  pointer-events:none;z-index:0;
-}
-.content{position:relative;z-index:1}
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 
-/* Header */
-.header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:10px 16px;
-  background:rgba(22,22,31,0.95);
-  backdrop-filter:blur(20px);
-  border-bottom:1px solid var(--border);
-  position:sticky;top:0;z-index:100;
-}
-.logo-text{
-  font-size:18px;font-weight:900;letter-spacing:1px;
-  background:linear-gradient(135deg,#fff,#aaa);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  white-space:nowrap;
-}
-.lang-select{
-  background:var(--border);border:1px solid #2a2a40;
-  color:var(--text);border-radius:8px;padding:4px 6px;
-  font-size:11px;font-weight:600;cursor:pointer;outline:none;
-  appearance:none;-webkit-appearance:none;width:60px;text-align:center;
+USER_LANG: dict[int, str] = {}
+def lang(uid): return USER_LANG.get(uid, "ru")
+
+# ── Images ────────────────────────────────────────────────────
+WELCOME_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
+RECEIVE_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
+
+def make_welcome_img():
+    return WELCOME_IMG_URL
+
+def make_receive_img():
+    return RECEIVE_IMG_URL
+
+def make_signal_img(direction):
+    color_name = "green" if direction == "buy" else "red"
+    return RECEIVE_IMG_URL
+
+def make_receive_img():
+    return RECEIVE_IMG_URL
+
+# ── Pairs & Analysis ──────────────────────────────────────────
+PAIRS = {
+    "EUR/USD":     {"base":1.0842,"vol":0.0008,"dec":5,"cat":"forex"},
+    "GBP/USD":     {"base":1.2714,"vol":0.0012,"dec":5,"cat":"forex"},
+    "USD/JPY":     {"base":157.42,"vol":0.15,  "dec":3,"cat":"forex"},
+    "AUD/USD":     {"base":0.6634,"vol":0.0007,"dec":5,"cat":"forex"},
+    "USD/CAD":     {"base":1.3612,"vol":0.0009,"dec":5,"cat":"forex"},
+    "NZD/USD":     {"base":0.6124,"vol":0.0007,"dec":5,"cat":"forex"},
+    "EUR/JPY":     {"base":170.52,"vol":0.18,  "dec":3,"cat":"forex"},
+    "GBP/JPY":     {"base":199.84,"vol":0.22,  "dec":3,"cat":"forex"},
+    "EUR/USD OTC": {"base":1.0842,"vol":0.0010,"dec":5,"cat":"otc"},
+    "GBP/USD OTC": {"base":1.2714,"vol":0.0014,"dec":5,"cat":"otc"},
+    "USD/JPY OTC": {"base":157.42,"vol":0.18,  "dec":3,"cat":"otc"},
+    "AUD/USD OTC": {"base":0.6634,"vol":0.0009,"dec":5,"cat":"otc"},
+    "EUR/GBP OTC": {"base":0.8524,"vol":0.0009,"dec":5,"cat":"otc"},
+    "EUR/JPY OTC": {"base":170.52,"vol":0.20,  "dec":3,"cat":"otc"},
+    "GBP/JPY OTC": {"base":199.84,"vol":0.25,  "dec":3,"cat":"otc"},
+    "NZD/USD OTC": {"base":0.6124,"vol":0.0009,"dec":5,"cat":"otc"},
 }
 
-.content{padding:16px;}
-
-/* Tabs */
-.tab-wrap{
-  display:flex;background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:var(--radius);padding:5px;margin-bottom:16px;gap:5px;
+EXPIRY = {
+    "S3":"3 сек","S15":"15 сек","S30":"30 сек",
+    "M1":"1 мин","M3":"3 мин","M5":"5 мин",
+    "M15":"15 мин","M30":"30 мин","H1":"1 час",
 }
-.tab{
-  flex:1;padding:10px;border:none;border-radius:12px;
-  font-size:14px;font-weight:700;cursor:pointer;
-  background:transparent;color:var(--muted);transition:all .25s;
-}
-.tab.active{
-  background:linear-gradient(135deg,#00c853,#00d084);
-  color:#000;box-shadow:0 4px 20px rgba(0,200,83,0.35);
+EXPIRY_EN = {
+    "S3":"3 sec","S15":"15 sec","S30":"30 sec",
+    "M1":"1 min","M3":"3 min","M5":"5 min",
+    "M15":"15 min","M30":"30 min","H1":"1 hour",
 }
 
-/* Fields */
-.field-label{font-size:11px;color:var(--muted);margin-bottom:7px;font-weight:600;text-transform:uppercase;letter-spacing:1px;}
-.field-wrap{margin-bottom:14px;}
-select{
-  width:100%;background:var(--surface);
-  border:1px solid var(--border);color:var(--text);
-  border-radius:var(--radius);padding:13px 16px;font-size:15px;
-  appearance:none;-webkit-appearance:none;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23444' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 14px center;
-  cursor:pointer;outline:none;font-weight:500;
-}
-select:focus{border-color:var(--green);}
+def gen_candles(base, vol, n=60):
+    price = base*(0.997+random.random()*0.006)
+    c = []
+    for _ in range(n):
+        o=price; cl=o+random.uniform(-vol,vol)
+        c.append({"o":o,"c":cl}); price=cl
+    return c
 
-/* Buttons */
-.btn-signal{
-  width:100%;padding:16px;
-  background:linear-gradient(135deg,#00c853,#00d084);
-  color:#000;border:none;border-radius:var(--radius);
-  font-size:16px;font-weight:800;cursor:pointer;margin-bottom:10px;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  box-shadow:0 6px 25px rgba(0,200,83,0.4);
-  transition:transform .1s,box-shadow .2s;letter-spacing:.5px;
-}
-.btn-signal:active{transform:scale(0.97);box-shadow:0 3px 12px rgba(0,200,83,0.3);}
-.btn-signal:disabled{opacity:.5;cursor:not-allowed;}
+def calc_rsi(closes, p=14):
+    g=l=0
+    for i in range(len(closes)-p, len(closes)):
+        d=closes[i]-closes[i-1]
+        if d>0: g+=d
+        else: l-=d
+    return 100-100/(1+(g/p)/((l/p) or 1e-9))
 
-.btn-tg{
-  width:100%;padding:14px;
-  background:linear-gradient(135deg,#0088cc,#006699);
-  color:#fff;border:none;border-radius:var(--radius);
-  font-size:15px;font-weight:700;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  margin-bottom:20px;box-shadow:0 4px 15px rgba(0,136,204,0.3);
-  transition:transform .1s;
-}
-.btn-tg:active{transform:scale(0.97);}
-
-/* Signal Card */
-.signal-card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);overflow:hidden;
-}
-.signal-card-header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:13px 18px;border-bottom:1px solid var(--border);
-  background:rgba(255,255,255,0.02);
-}
-.signal-card-title{font-size:15px;font-weight:700;}
-.signal-card-time{font-size:13px;color:var(--muted);}
-.signal-body{padding:22px 18px;text-align:center;}
-.empty-state{color:var(--muted);font-size:14px;padding:30px 0;}
-
-/* Direction */
-.direction-wrap{border-radius:20px;padding:22px 16px;margin-bottom:18px;}
-.direction-wrap.buy{background:linear-gradient(135deg,rgba(0,208,132,0.12),rgba(0,200,83,0.06));border:1px solid rgba(0,208,132,0.25);}
-.direction-wrap.sell{background:linear-gradient(135deg,rgba(255,77,77,0.12),rgba(213,0,0,0.06));border:1px solid rgba(255,77,77,0.25);}
-.direction-arrow{font-size:40px;line-height:1;margin-bottom:4px;}
-.direction-big{font-size:34px;font-weight:900;letter-spacing:3px;line-height:1;margin-bottom:4px;}
-.direction-big.buy{color:var(--green);text-shadow:0 0 30px rgba(0,208,132,0.5);}
-.direction-big.sell{color:var(--red);text-shadow:0 0 30px rgba(255,77,77,0.5);}
-.direction-sub{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:2px;}
-
-/* Stats */
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
-.stat-cell{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:14px;padding:12px 14px;}
-.stat-cell-label{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;}
-.stat-cell-value{font-size:15px;font-weight:700;}
-.stat-cell-value.green{color:var(--green);}
-.stat-cell-value.red{color:var(--red);}
-
-/* Accuracy */
-.acc-wrap{background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
-.acc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
-.acc-label{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;}
-.acc-pct{font-size:22px;font-weight:900;}
-.acc-pct.green{color:var(--green);}
-.acc-pct.red{color:var(--red);}
-.acc-track{height:6px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;}
-.acc-fill{height:100%;border-radius:4px;transition:width .8s cubic-bezier(.4,0,.2,1);}
-.acc-fill.green{background:linear-gradient(90deg,var(--green2),var(--green));box-shadow:0 0 10px rgba(0,208,132,0.4);}
-.acc-fill.red{background:linear-gradient(90deg,var(--red2),var(--red));box-shadow:0 0 10px rgba(255,77,77,0.4);}
-
-/* Spinner */
-.spinner{width:20px;height:20px;border:2.5px solid rgba(0,0,0,0.25);border-top-color:#000;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="logo-text">TREU AI</div>
-  <select id="langSelect" class="lang-select" onchange="selectLang(this.value)">
-    <option value="en">🇬🇧</option>
-    <option value="ru">🇷🇺</option>
-    <option value="es">🇪🇸</option>
-    <option value="pt">🇧🇷</option>
-    <option value="tr">🇹🇷</option>
-  </select>
-</div>
-
-<div class="content">
-  <div class="tab-wrap">
-    <button class="tab active" id="tabRegular" onclick="switchTab('regular')">Regular</button>
-    <button class="tab" id="tabOtc" onclick="switchTab('otc')">OTC</button>
-  </div>
-
-  <div class="field-wrap">
-    <div class="field-label" id="lblInstrument">Instrument</div>
-    <select id="pairSelect"></select>
-  </div>
-
-  <div class="field-wrap">
-    <div class="field-label" id="lblTime">Timeframe</div>
-    <select id="tfSelect"></select>
-  </div>
-
-  <button class="btn-signal" id="btnSignal" onclick="getSignal()">
-    <span id="btnText">▶ New Analysis</span>
-  </button>
-
-  <button class="btn-tg" onclick="window.open('https://t.me/+EfO2pf9FX0EyNDUy','_blank')">
-    ✈ Telegram
-  </button>
-
-  <div class="signal-card">
-    <div class="signal-card-header">
-      <div class="signal-card-title" id="lblSignal">Signal</div>
-      <div class="signal-card-time" id="cardTime">--:--</div>
-    </div>
-    <div class="signal-body" id="signalBody">
-      <div class="empty-state">👆 <span id="emptyText">Press New Analysis</span></div>
-    </div>
-  </div>
-</div>
-
-<script>
-var currentLang='en', currentTab='regular';
-var PAIRS_REGULAR=['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','NZD/USD','EUR/JPY','GBP/JPY','USD/CHF','EUR/GBP','EUR/AUD','GBP/CAD','AUD/CAD','AUD/JPY','CAD/JPY','CHF/JPY','EUR/CAD','EUR/CHF','GBP/AUD','GBP/CHF','NZD/JPY'];
-var PAIRS_OTC=['EUR/USD OTC','GBP/USD OTC','USD/JPY OTC','AUD/USD OTC','EUR/GBP OTC','AUD/CAD OTC','EUR/JPY OTC','GBP/JPY OTC','NZD/USD OTC','USD/CAD OTC','USD/CHF OTC','EUR/AUD OTC','GBP/AUD OTC','AUD/JPY OTC','CAD/JPY OTC','CHF/JPY OTC','EUR/CAD OTC','EUR/CHF OTC','GBP/CAD OTC','NZD/JPY OTC'];
-var TF_REGULAR=[{val:'M1',label:'1m'},{val:'M3',label:'3m'},{val:'M5',label:'5m'},{val:'M15',label:'15m'}];
-var TF_OTC=[{val:'S3',label:'S3'},{val:'S15',label:'S15'},{val:'S30',label:'S30'},{val:'M1',label:'M1'},{val:'M3',label:'M3'},{val:'M5',label:'M5'}];
-
-var PAIRS_DATA={
-  'EUR/USD':{base:1.0842,vol:0.0008,dec:5},'GBP/USD':{base:1.2714,vol:0.0012,dec:5},
-  'USD/JPY':{base:157.42,vol:0.15,dec:3},'AUD/USD':{base:0.6634,vol:0.0007,dec:5},
-  'USD/CAD':{base:1.3612,vol:0.0009,dec:5},'NZD/USD':{base:0.6124,vol:0.0007,dec:5},
-  'EUR/JPY':{base:170.52,vol:0.18,dec:3},'GBP/JPY':{base:199.84,vol:0.22,dec:3},
-  'USD/CHF':{base:0.8921,vol:0.0008,dec:5},'EUR/GBP':{base:0.8524,vol:0.0006,dec:5},
-  'EUR/AUD':{base:1.6342,vol:0.0013,dec:5},'GBP/CAD':{base:1.7284,vol:0.0015,dec:5},
-  'AUD/CAD':{base:0.9012,vol:0.0008,dec:5},'AUD/JPY':{base:104.32,vol:0.13,dec:3},
-  'CAD/JPY':{base:115.62,vol:0.14,dec:3},'CHF/JPY':{base:176.43,vol:0.19,dec:3},
-  'EUR/CAD':{base:1.4732,vol:0.0012,dec:5},'EUR/CHF':{base:0.9654,vol:0.0007,dec:5},
-  'GBP/AUD':{base:1.9213,vol:0.0018,dec:5},'GBP/CHF':{base:1.1342,vol:0.0011,dec:5},
-  'NZD/JPY':{base:96.43,vol:0.12,dec:3},
-  'EUR/USD OTC':{base:1.0842,vol:0.001,dec:5},'GBP/USD OTC':{base:1.2714,vol:0.0014,dec:5},
-  'USD/JPY OTC':{base:157.42,vol:0.18,dec:3},'AUD/USD OTC':{base:0.6634,vol:0.0009,dec:5},
-  'EUR/GBP OTC':{base:0.8524,vol:0.0009,dec:5},'AUD/CAD OTC':{base:0.9012,vol:0.001,dec:5},
-  'EUR/JPY OTC':{base:170.52,vol:0.20,dec:3},'GBP/JPY OTC':{base:199.84,vol:0.25,dec:3},
-  'NZD/USD OTC':{base:0.6124,vol:0.0009,dec:5},'USD/CAD OTC':{base:1.3612,vol:0.0011,dec:5},
-  'USD/CHF OTC':{base:0.8921,vol:0.001,dec:5},'EUR/AUD OTC':{base:1.6342,vol:0.0015,dec:5},
-  'GBP/AUD OTC':{base:1.9213,vol:0.002,dec:5},'AUD/JPY OTC':{base:104.32,vol:0.15,dec:3},
-  'CAD/JPY OTC':{base:115.62,vol:0.16,dec:3},'CHF/JPY OTC':{base:176.43,vol:0.22,dec:3},
-  'EUR/CAD OTC':{base:1.4732,vol:0.0014,dec:5},'EUR/CHF OTC':{base:0.9654,vol:0.0009,dec:5},
-  'GBP/CAD OTC':{base:1.7284,vol:0.0017,dec:5},'NZD/JPY OTC':{base:96.43,vol:0.14,dec:3}
-};
-
-var EXPIRY_MAP={
-  S3:'3 sec',S15:'15 sec',S30:'30 sec',
-  M1:'1 min',M3:'3 min',M5:'5 min',M15:'15 min'
-};
-var EXPIRY_MAP_RU={
-  S3:'3 сек',S15:'15 сек',S30:'30 сек',
-  M1:'1 мин',M3:'3 мин',M5:'5 мин',M15:'15 мин'
-};
-
-var UI={
-  instrument:{en:'Instrument',ru:'Инструмент',es:'Instrumento',pt:'Instrumento',tr:'Enstrüman'},
-  timeframe:{en:'Timeframe',ru:'Таймфрейм',es:'Tiempo',pt:'Tempo',tr:'Zaman'},
-  signal:{en:'Signal',ru:'Сигнал',es:'Señal',pt:'Sinal',tr:'Sinyal'},
-  getSignal:{en:'▶ New Analysis',ru:'▶ Новый анализ',es:'▶ Nuevo análisis',pt:'▶ Nova análise',tr:'▶ Yeni analiz'},
-  analyzing:{en:'Analyzing...',ru:'Анализ...',es:'Analizando...',pt:'Analisando...',tr:'Analiz...'},
-  regular:{en:'Regular',ru:'Обычные',es:'Regular',pt:'Regular',tr:'Normal'},
-  entry:{en:'Entry',ru:'Вход',es:'Entrada',pt:'Entrada',tr:'Giriş'},
-  expiry:{en:'Expiry',ru:'Экспирация',es:'Expiración',pt:'Expiração',tr:'Süre'},
-  strength:{en:'Strength',ru:'Сила',es:'Fuerza',pt:'Força',tr:'Güç'},
-  accuracy:{en:'Accuracy',ru:'Точность',es:'Precisión',pt:'Precisão',tr:'Doğruluk'},
-  strong:{en:'Strong',ru:'Сильный',es:'Fuerte',pt:'Forte',tr:'Güçlü'},
-  medium:{en:'Medium',ru:'Средний',es:'Medio',pt:'Médio',tr:'Orta'},
-  buy:{en:'BUY',ru:'ПОКУПКА',es:'COMPRAR',pt:'COMPRAR',tr:'AL'},
-  sell:{en:'SELL',ru:'ПРОДАЖА',es:'VENDER',pt:'VENDER',tr:'SAT'},
-  pressBtn:{en:'Press New Analysis',ru:'Нажмите новый анализ',es:'Presiona nuevo análisis',pt:'Pressione nova análise',tr:'Yeni analiz butonuna bas'},
-};
-
-function tr(key){return (UI[key]||{})[currentLang]||(UI[key]||{})['en']||key;}
-
-function selectLang(lang){
-  currentLang=lang;
-  document.getElementById('lblInstrument').textContent=tr('instrument');
-  document.getElementById('lblTime').textContent=tr('timeframe');
-  document.getElementById('lblSignal').textContent=tr('signal');
-  document.getElementById('btnText').textContent=tr('getSignal');
-  document.getElementById('tabRegular').textContent=tr('regular');
-  var el=document.getElementById('emptyText');
-  if(el) el.textContent=tr('pressBtn');
-  updateTf();
-}
-
-function switchTab(tab){
-  currentTab=tab;
-  document.getElementById('tabRegular').className='tab'+(tab==='regular'?' active':'');
-  document.getElementById('tabOtc').className='tab'+(tab==='otc'?' active':'');
-  updatePairs();updateTf();
-}
-
-var FLAGS={
-  EUR:'🇪🇺',USD:'🇺🇸',GBP:'🇬🇧',JPY:'🇯🇵',AUD:'🇦🇺',
-  CAD:'🇨🇦',NZD:'🇳🇿',CHF:'🇨🇭'
-};
-
-function pairLabel(pair){
-  var isOtc = pair.indexOf('OTC')>-1;
-  var clean = pair.replace(' OTC','');
-  var parts = clean.split('/');
-  var f1 = FLAGS[parts[0]]||'';
-  var f2 = FLAGS[parts[1]]||'';
-  return f1+f2+' '+clean+(isOtc?' OTC':'');
-}
-
-function updatePairs(){
-  var pairs=currentTab==='otc'?PAIRS_OTC:PAIRS_REGULAR;
-  var sel=document.getElementById('pairSelect');
-  sel.innerHTML='';
-  for(var i=0;i<pairs.length;i++){
-    var opt=document.createElement('option');
-    opt.value=pairs[i];opt.textContent=pairLabel(pairs[i]);
-    if(i===0) opt.selected=true;
-    sel.appendChild(opt);
-  }
-}
-
-function updateTf(){
-  var tfs=currentTab==='otc'?TF_OTC:TF_REGULAR;
-  var sel=document.getElementById('tfSelect');
-  sel.innerHTML='';
-  for(var i=0;i<tfs.length;i++){
-    var opt=document.createElement('option');
-    opt.value=tfs[i].val;opt.textContent=tfs[i].label;
-    if(i===0) opt.selected=true;
-    sel.appendChild(opt);
-  }
-}
-
-function rnd(a,b){return Math.random()*(b-a)+a;}
-
-function genCandles(base,vol){
-  var price=base*(0.997+Math.random()*0.006),c=[];
-  for(var i=0;i<60;i++){
-    var o=price,cl=o+rnd(-vol,vol);
-    c.push({o:o,c:cl});price=cl;
-  }
-  return c;
-}
-
-function calcRsi(closes){
-  var g=0,l=0;
-  for(var i=closes.length-14;i<closes.length;i++){
-    var d=closes[i]-closes[i-1];
-    if(d>0) g+=d; else l-=d;
-  }
-  return 100-100/(1+(g/14)/((l/14)||0.0001));
-}
-
-function analyze(pair,tf){
-  var info=PAIRS_DATA[pair]||{base:1,vol:0.001,dec:5};
-  var candles=genCandles(info.base,info.vol);
-  var closes=[];
-  for(var i=0;i<candles.length;i++) closes.push(candles[i].c);
-  var n=closes.length;
-  var rsi=calcRsi(closes);
-  var ma20=0; for(var i=n-20;i<n;i++) ma20+=closes[i]; ma20/=20;
-  var ma50=0; for(var i=n-50;i<n;i++) ma50+=closes[i]; ma50/=50;
-  var ma12=0; for(var i=n-12;i<n;i++) ma12+=closes[i]; ma12/=12;
-  var ma26=0; for(var i=n-26;i<n;i++) ma26+=closes[i]; ma26/=26;
-  var macd=ma12-ma26;
-  var last=closes[n-1],prev=closes[n-2];
-
-  var score=0;
-  if(rsi<45) score++; else if(rsi>60) score--;
-  if(ma20>ma50) score++; else score--;
-  if(macd>0) score++; else score--;
-  if(last>prev) score++; else score--;
-
-  var direction=score>=0?'buy':'sell';
-  var conf=Math.min(95,Math.max(74,74+Math.abs(score)*4+rnd(0,8)));
-  var now=new Date();
-  var hh=String(now.getHours()).padStart(2,'0');
-  var mm=String(now.getMinutes()).padStart(2,'0');
-  var expMap=currentLang==='ru'?EXPIRY_MAP_RU:EXPIRY_MAP;
-
-  return{
-    pair:pair,tf:tf,direction:direction,conf:conf,
-    strength:conf>=85?tr('strong'):tr('medium'),
-    entryTime:hh+':'+mm,
-    expiry:expMap[tf]||tf
-  };
-}
-
-function getSignal(){
-  var pair=document.getElementById('pairSelect').value;
-  var tf=document.getElementById('tfSelect').value;
-  var btn=document.getElementById('btnSignal');
-  var body=document.getElementById('signalBody');
-  var now=new Date();
-  var hh=String(now.getHours()).padStart(2,'0');
-  var mm=String(now.getMinutes()).padStart(2,'0');
-  document.getElementById('cardTime').textContent=hh+':'+mm;
-
-  btn.disabled=true;
-  btn.innerHTML='<div class="spinner"></div>';
-  body.innerHTML='<div class="empty-state">'+tr('analyzing')+'</div>';
-  var cardEl=document.querySelector('.signal-card');
-  cardEl.style.borderColor='';cardEl.style.boxShadow='';
-
-  setTimeout(function(){
-    var d=analyze(pair,tf);
-    btn.disabled=false;
-    btn.innerHTML='<span id="btnText">'+tr('getSignal')+'</span>';
-
-    var dc=d.direction;
-    var arrow=dc==='buy'?'▲':'▼';
-    var label=tr(dc);
-    var accColor=dc==='buy'?'green':'red';
-    var valColor=dc==='buy'?'green':'red';
-
-    var cardEl = document.querySelector('.signal-card');
-    if(dc === 'buy') {
-      cardEl.style.borderColor = 'rgba(0,208,132,0.4)';
-      cardEl.style.boxShadow = '0 0 30px rgba(0,208,132,0.15)';
-    } else {
-      cardEl.style.borderColor = 'rgba(255,77,77,0.4)';
-      cardEl.style.boxShadow = '0 0 30px rgba(255,77,77,0.15)';
+def analyze(pair, tf, uid):
+    info = PAIRS[pair]
+    candles = gen_candles(info["base"], info["vol"])
+    closes = [c["c"] for c in candles]
+    n = len(closes)
+    rsi = calc_rsi(closes)
+    ma20 = sum(closes[-20:])/20; ma50 = sum(closes[-50:])/50
+    macd = sum(closes[-12:])/12 - sum(closes[-26:])/26
+    last = closes[-1]; prev = closes[-2]
+    score = 0
+    if rsi<45: score+=1
+    elif rsi>60: score-=1
+    if ma20>ma50: score+=1
+    else: score-=1
+    if macd>0: score+=1
+    else: score-=1
+    if last>prev: score+=1
+    else: score-=1
+    direction = "buy" if score>=0 else "sell"
+    conf = min(95, max(74, 74+abs(score)*4+random.uniform(0,8)))
+    now = datetime.now(timezone(timedelta(hours=3)))
+    ln = lang(uid)
+    exp_map = EXPIRY_EN if ln=="en" else EXPIRY
+    return {
+        "pair": pair, "tf": tf, "direction": direction, "conf": conf,
+        "price": f"{last:.{info['dec']}f}",
+        "expiry": exp_map.get(tf, tf),
+        "entry_time": now.strftime("%H:%M"),
+        "strength": ("Strong" if ln=="en" else "Сильный") if conf>=85 else ("Medium" if ln=="en" else "Средний"),
     }
 
-    body.innerHTML=
-      '<div class="signal-result">'+
-      '<div style="font-size:16px;font-weight:700;margin-bottom:14px;color:var(--text);">'+pairLabel(d.pair)+'</div>'+
-      '<div class="direction-wrap '+dc+'">'+
-        '<div class="direction-arrow">'+(dc==='buy'?'📈':'📉')+'</div>'+
-        '<div class="direction-big '+dc+'">'+arrow+' '+label+' '+arrow+'</div>'+
-        '<div class="direction-sub">'+d.tf+'</div>'+
-      '</div>'+
-      '<div class="stats-grid">'+
-        '<div class="stat-cell">'+
-          '<div class="stat-cell-label">🕐 '+tr('entry')+'</div>'+
-          '<div class="stat-cell-value">'+d.entryTime+' <span style="font-size:10px;color:var(--muted)">UTC+3</span></div>'+
-        '</div>'+
-        '<div class="stat-cell">'+
-          '<div class="stat-cell-label">⌛ '+tr('expiry')+'</div>'+
-          '<div class="stat-cell-value">'+d.expiry+'</div>'+
-        '</div>'+
-        '<div class="stat-cell" style="grid-column:1/-1">'+
-          '<div class="stat-cell-label">✅ '+tr('strength')+'</div>'+
-          '<div class="stat-cell-value '+valColor+'">'+d.strength+'</div>'+
-        '</div>'+
-      '</div>'+
-      '<div class="acc-wrap">'+
-        '<div class="acc-top">'+
-          '<span class="acc-label">🎯 '+tr('accuracy')+'</span>'+
-          '<span class="acc-pct '+accColor+'">'+d.conf.toFixed(2)+'%</span>'+
-        '</div>'+
-        '<div class="acc-track"><div class="acc-fill '+accColor+'" style="width:'+Math.round(d.conf)+'%"></div></div>'+
-      '</div>'+
-      '</div>';
-  },1500);
-}
+# ── Text ──────────────────────────────────────────────────────
+def welcome_text(uid):
+    if lang(uid) == "en":
+        return (
+            "👋 *Welcome to TREU TRADING AI*\n\n"
+            "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
+            "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
+        )
+    return (
+        "👋 *Welcome to TREU TRADING AI*\n\n"
+        "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
+        "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
+    )
 
-updatePairs();
-updateTf();
+def congrats_text(uid):
+    return (
+        "⚡ *Congratulations!* Your signal access has been unlocked.\n\n"
+        "Press *\"Receive a Signal\"* to get your first AI-powered trading signal."
+    )
 
-if(window.Telegram&&window.Telegram.WebApp){
-  window.Telegram.WebApp.expand();
-  window.Telegram.WebApp.setBackgroundColor('#050508');
-}
-</script>
-</body>
-</html>
+def signal_text(d, uid):
+    ln = lang(uid)
+    icon = "🟢" if d["direction"]=="buy" else "🔴"
+    pos = ("📈 CALL — BUY" if ln=="en" else "📈 CALL — ПОКУПКА") if d["direction"]=="buy" else ("📉 PUT — SELL" if ln=="en" else "📉 PUT — ПРОДАЖА")
+    entry_lbl = "Entry Time" if ln=="en" else "Время входа"
+    exp_lbl = "Expiry" if ln=="en" else "Экспирация"
+    str_lbl = "Strength" if ln=="en" else "Сила сигнала"
+    acc_lbl = "Accuracy" if ln=="en" else "Точность"
+    bars = int(d["conf"]/10); bar = "🟩"*bars + "⬜"*(10-bars)
+    return (
+        f"{icon} *{d['pair']}* | ⏱ {d['tf']}\n\n"
+        f"📊 *{pos}*\n\n"
+        f"🕐 *{entry_lbl}:* `{d['entry_time']} UTC+3`\n"
+        f"⌛ *{exp_lbl}:* `{d['expiry']}`\n"
+        f"✅ *{str_lbl}:* `{d['strength']}`\n\n"
+        f"🎯 *{acc_lbl}:* {bar} `{d['conf']:.2f}%`\n\n"
+        f"⚠️ _{'For analysis only. Trading is your risk.' if ln=='en' else 'Только для анализа. Торговля — ваш риск.'}_"
+    )
+
+# ── Keyboards ─────────────────────────────────────────────────
+def lang_kb():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru"),
+        InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
+    ]])
+
+def main_kb(uid):
+    ln = lang(uid)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 " + ("START TRADING" if ln=="en" else "НАЧАТЬ ТОРГОВЛЮ"), callback_data="start_trading")],
+        [InlineKeyboardButton("📊 " + ("VIEW RESULTS" if ln=="en" else "СМОТРЕТЬ РЕЗУЛЬТАТЫ"), callback_data="results")],
+        [InlineKeyboardButton("🆘 " + ("SUPPORT" if ln=="en" else "ПОДДЕРЖКА"), url="https://t.me/treu_support")],
+    ])
+
+def signal_kb(uid):
+    ln = lang(uid)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 " + ("RECEIVE A SIGNAL" if ln=="en" else "ПОЛУЧИТЬ СИГНАЛ"), web_app=WebAppInfo(url=f"https://treutrading-eng.github.io/pocket-bots/miniapp.html?v={int(datetime.now().timestamp())}"))],
+        [InlineKeyboardButton("🏠 " + ("HOME PAGE" if ln=="en" else "ГЛАВНАЯ"), callback_data="home")],
+    ])
+
+def pair_cat_kb(uid):
+    ln = lang(uid)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌍 Forex", callback_data="cat:forex"),
+         InlineKeyboardButton("🕐 OTC", callback_data="cat:otc")],
+        [InlineKeyboardButton("◀ " + ("Back" if ln=="en" else "Назад"), callback_data="home")],
+    ])
+
+def pairs_kb(cat, uid):
+    pairs = [p for p,v in PAIRS.items() if v["cat"]==cat]
+    rows = []
+    row = []
+    for p in pairs:
+        row.append(InlineKeyboardButton(p, callback_data=f"pair:{p}"))
+        if len(row)==2: rows.append(row); row=[]
+    if row: rows.append(row)
+    ln = lang(uid)
+    rows.append([InlineKeyboardButton("◀ " + ("Back" if ln=="en" else "Назад"), callback_data="get_signal")])
+    return InlineKeyboardMarkup(rows)
+
+def tf_kb(pair, uid):
+    ln = lang(uid)
+    cat = PAIRS[pair]["cat"]
+    tfs = ["S3","S15","S30","M1","M3","M5"] if cat=="otc" else ["M1","M3","M5","M15"]
+    rows = []
+    row = []
+    for tf in tfs:
+        row.append(InlineKeyboardButton(tf, callback_data=f"tf:{pair}:{tf}"))
+        if len(row)==3: rows.append(row); row=[]
+    if row: rows.append(row)
+    rows.append([InlineKeyboardButton("◀ " + ("Back" if ln=="en" else "Назад"), callback_data="get_signal")])
+    return InlineKeyboardMarkup(rows)
+
+# ── Handlers ─────────────────────────────────────────────────
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    USER_LANG[uid] = "en"
+    img = make_welcome_img()
+    await update.message.reply_photo(
+        photo=img,
+        caption=welcome_text(uid),
+        parse_mode="Markdown",
+        reply_markup=main_kb(uid)
+    )
+
+async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    data = q.data
+
+    if data.startswith("lang:"):
+        USER_LANG[uid] = data.split(":")[1]
+        img = make_welcome_img()
+        await q.message.delete()
+        await q.message.chat.send_photo(
+            photo=img,
+            caption=welcome_text(uid),
+            parse_mode="Markdown",
+            reply_markup=main_kb(uid)
+        )
+        return
+
+    if data == "home":
+        img = make_welcome_img()
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=img,
+            caption=welcome_text(uid),
+            parse_mode="Markdown",
+            reply_markup=main_kb(uid)
+        )
+        return
+
+    if data == "start_trading":
+        img = make_receive_img()
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=img,
+            caption=congrats_text(uid),
+            parse_mode="Markdown",
+            reply_markup=signal_kb(uid)
+        )
+        return
+
+    if data == "results":
+        await q.message.chat.send_message(
+            "📊 *Results*\n\n⏳ Your results are currently being processed. Please check back soon.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data="home")]]))
+        return
+
+    if data == "get_signal":
+        ln = lang(uid)
+        await q.message.chat.send_message(
+            "🌍 *Выберите категорию / Choose category:*" if ln=="ru" else "🌍 *Choose category:*",
+            parse_mode="Markdown",
+            reply_markup=pair_cat_kb(uid)
+        )
+        return
+
+    if data.startswith("cat:"):
+        cat = data.split(":")[1]
+        ln = lang(uid)
+        await q.message.chat.send_message(
+            "💱 *Выберите пару / Choose pair:*" if ln=="ru" else "💱 *Choose pair:*",
+            parse_mode="Markdown",
+            reply_markup=pairs_kb(cat, uid)
+        )
+        return
+
+    if data.startswith("pair:"):
+        pair = data[5:]
+        ln = lang(uid)
+        await q.message.chat.send_message(
+            "⏱ *Выберите таймфрейм:*" if ln=="ru" else "⏱ *Choose timeframe:*",
+            parse_mode="Markdown",
+            reply_markup=tf_kb(pair, uid)
+        )
+        return
+
+    if data.startswith("tf:"):
+        parts = data.split(":")
+        tf = parts[-1]; pair = ":".join(parts[1:-1])
+        d = analyze(pair, tf, uid)
+        img = make_signal_img(d["direction"])
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=img,
+            caption=signal_text(d, uid),
+            parse_mode="Markdown",
+            reply_markup=signal_kb(uid)
+        )
+        return
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CallbackQueryHandler(on_callback))
+    print("✅ TREU AI Bot запущен.")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
