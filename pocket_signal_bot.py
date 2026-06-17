@@ -18,7 +18,7 @@ POCKET_REF_LINK   = os.getenv("POCKET_REF_LINK",   "ВАША_РЕФЕРАЛЬН�
 POCKET_API_BASE   = "https://pocketpartners.com/api/user-info"
 
 def _pocket_hash(user_id: str) -> str:
-    raw = f"{user_id}{POCKET_PARTNER_ID}{POCKET_API_TOKEN}"
+    raw = f"{user_id}:{POCKET_PARTNER_ID}:{POCKET_API_TOKEN}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 async def check_pocket_user(pocket_id: str) -> dict | None:
