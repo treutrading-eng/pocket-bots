@@ -442,14 +442,34 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "check_dep":
-        USER_STATE[uid] = "await_dep_id"
-        try: await q.message.delete()
-        except: pass
-        await q.message.chat.send_photo(
-            photo=make_last_stage_img(),
-            caption=ask_dep_id_text(),
-            reply_markup=ask_id_kb()
-        )
+        pocket_id = USER_POCKET_ID.get(uid)
+        if not pocket_id:
+            # Если ID почему-то не сохранён — просим ввести как запасной вариант
+            USER_STATE[uid] = "await_dep_id"
+            try: await q.message.delete()
+            except: pass
+            await q.message.chat.send_photo(
+                photo=make_last_stage_img(),
+                caption=ask_dep_id_text(),
+                reply_markup=ask_id_kb()
+            )
+            return
+
+        api_data = await check_pocket_user(pocket_id)
+        deposited = _has_deposit(api_data)
+
+        if deposited:
+            await q.message.chat.send_photo(
+                photo=make_welcome_img(),
+                caption=dep_ok_text(),
+                parse_mode="Markdown",
+                reply_markup=dep_ok_kb(uid)
+            )
+        else:
+            await q.message.chat.send_message(
+                dep_fail_text(),
+                reply_markup=dep_fail_kb()
+            )
         return
 
     if data == "back_to_step1":
