@@ -24,11 +24,18 @@ def _pocket_hash(user_id: str) -> str:
 async def check_pocket_user(pocket_id: str) -> dict | None:
     """Запрос к PocketPartners API по ID пользователя с платформы."""
     url = f"{POCKET_API_BASE}/{pocket_id}/{POCKET_PARTNER_ID}/{_pocket_hash(pocket_id)}"
+    logging.info(f"[PocketPartners] Запрос URL: {url}")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                raw_text = await resp.text()
+                logging.info(f"[PocketPartners] Статус: {resp.status} | Ответ: {raw_text}")
                 if resp.status == 200:
-                    return await resp.json()
+                    try:
+                        return await resp.json(content_type=None)
+                    except Exception as parse_err:
+                        logging.error(f"[PocketPartners] Не удалось распарсить JSON: {parse_err}")
+                        return None
                 logging.warning(f"[PocketPartners] HTTP {resp.status} для user {pocket_id}")
                 return None
     except Exception as e:
