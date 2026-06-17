@@ -198,7 +198,7 @@ select:focus{border-color:var(--green);}
   </div>
 
   <button class="btn-signal" id="btnSignal" onclick="getSignal()">
-    <span id="btnText">▶ Get Signal</span>
+    <span id="btnText">▶ New Analysis</span>
   </button>
 
   <button class="btn-tg" onclick="window.open('https://t.me/+EfO2pf9FX0EyNDUy','_blank')">
@@ -211,7 +211,7 @@ select:focus{border-color:var(--green);}
       <div class="signal-card-time" id="cardTime">--:--</div>
     </div>
     <div class="signal-body" id="signalBody">
-      <div class="empty-state">👆 <span id="emptyText">Press Get Signal</span></div>
+      <div class="empty-state">👆 <span id="emptyText">Press New Analysis</span></div>
     </div>
   </div>
 </div>
@@ -271,7 +271,7 @@ var UI={
   medium:{en:'Medium',ru:'Средний',es:'Medio',pt:'Médio',tr:'Orta'},
   buy:{en:'BUY',ru:'ПОКУПКА',es:'COMPRAR',pt:'COMPRAR',tr:'AL'},
   sell:{en:'SELL',ru:'ПРОДАЖА',es:'VENDER',pt:'VENDER',tr:'SAT'},
-  pressBtn:{en:'Press Get Signal',ru:'Нажмите получить сигнал',es:'Presiona obtener señal',pt:'Pressione obter sinal',tr:'Sinyal al butonuna bas'},
+  pressBtn:{en:'Press New Analysis',ru:'Нажмите новый анализ',es:'Presiona nuevo análisis',pt:'Pressione nova análise',tr:'Yeni analiz butonuna bas'},
 };
 
 function tr(key){return (UI[key]||{})[currentLang]||(UI[key]||{})['en']||key;}
@@ -295,13 +295,27 @@ function switchTab(tab){
   updatePairs();updateTf();
 }
 
+var FLAGS={
+  EUR:'🇪🇺',USD:'🇺🇸',GBP:'🇬🇧',JPY:'🇯🇵',AUD:'🇦🇺',
+  CAD:'🇨🇦',NZD:'🇳🇿',CHF:'🇨🇭'
+};
+
+function pairLabel(pair){
+  var isOtc = pair.indexOf('OTC')>-1;
+  var clean = pair.replace(' OTC','');
+  var parts = clean.split('/');
+  var f1 = FLAGS[parts[0]]||'';
+  var f2 = FLAGS[parts[1]]||'';
+  return f1+f2+' '+clean+(isOtc?' OTC':'');
+}
+
 function updatePairs(){
   var pairs=currentTab==='otc'?PAIRS_OTC:PAIRS_REGULAR;
   var sel=document.getElementById('pairSelect');
   sel.innerHTML='';
   for(var i=0;i<pairs.length;i++){
     var opt=document.createElement('option');
-    opt.value=pairs[i];opt.textContent=pairs[i];
+    opt.value=pairs[i];opt.textContent=pairLabel(pairs[i]);
     if(i===0) opt.selected=true;
     sel.appendChild(opt);
   }
@@ -412,6 +426,7 @@ function getSignal(){
 
     body.innerHTML=
       '<div class="signal-result">'+
+      '<div style="font-size:16px;font-weight:700;margin-bottom:14px;color:var(--text);">'+pairLabel(d.pair)+'</div>'+
       '<div class="direction-wrap '+dc+'">'+
         '<div class="direction-arrow">'+(dc==='buy'?'📈':'📉')+'</div>'+
         '<div class="direction-big '+dc+'">'+arrow+' '+label+' '+arrow+'</div>'+
