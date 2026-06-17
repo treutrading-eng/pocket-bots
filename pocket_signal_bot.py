@@ -42,6 +42,30 @@ async def check_pocket_user(pocket_id: str) -> dict | None:
         logging.error(f"[PocketPartners] Ошибка запроса: {e}")
         return None
 
+def _is_registered(data: dict | None) -> bool:
+    """
+    Пользователь считается зарегистрированным, если API вернул его карточку
+    (есть uid и дата регистрации). API не отдаёт отдельное поле "registered" —
+    если запись найдена (status 200), значит пользователь существует в системе.
+    """
+    if not data:
+        return False
+    return bool(data.get("uid")) or bool(data.get("reg_date"))
+
+def _has_deposit(data: dict | None) -> bool:
+    """
+    Депозит подтверждён, если есть хотя бы один платёж.
+    Используем count_deposits / sum_deposits из реального ответа API.
+    """
+    if not data:
+        return False
+    count = data.get("count_deposits", 0) or 0
+    total = data.get("sum_deposits", 0) or 0
+    try:
+        return float(count) > 0 or float(total) > 0
+    except (TypeError, ValueError):
+        return False
+
 # ── Состояния пользователей ───────────────────────────────────
 # Хранит на каком этапе находится пользователь
 # "await_reg_id"  — ждём ввода ID для проверки регистрации
@@ -325,8 +349,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pocket_id = USER_POCKET_ID[uid]
         data = await check_pocket_user(pocket_id)
         if data:
-            registered = bool(data.get("registered", False))
-            deposited  = bool(data.get("deposited",  False))
+            registered = _is_registered(data)
+            deposited  = _has_deposit(data)
             if registered and deposited:
                 await update.message.reply_photo(
                     photo=make_welcome_img(),
@@ -358,7 +382,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         USER_STATE.pop(uid, None)
         data = await check_pocket_user(pocket_id)
-        registered = bool(data.get("registered", False)) if data else False
+        registered = _is_registered(data)
 
         if registered:
             USER_POCKET_ID[uid] = pocket_id
@@ -386,7 +410,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         USER_STATE.pop(uid, None)
         data = await check_pocket_user(pocket_id)
-        deposited = bool(data.get("deposited", False)) if data else False
+        deposited = _has_deposit(data)
 
         if deposited:
             USER_POCKET_ID[uid] = pocket_id
@@ -465,8 +489,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
         api_data = await check_pocket_user(pocket_id)
-        registered = bool(api_data.get("registered", False)) if api_data else False
-        deposited  = bool(api_data.get("deposited",  False)) if api_data else False
+        registered = _is_registered(api_data)
+        deposited  = _has_deposit(api_data)
         if not registered or not deposited:
             if registered:
                 await q.message.chat.send_photo(
