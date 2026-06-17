@@ -2,7 +2,7 @@
 TREU AI — Trading Signal Bot
 с пошаговой проверкой регистрации и депозита через PocketPartners API
 """
-import os, io, logging, random, hashlib, aiohttp
+import os, io, logging, random, hashlib, aiohttp, time
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
@@ -91,9 +91,9 @@ ID_NOT_FOUND_IMG  = "https://treutrading-eng.github.io/pocket-bots/id_not_found.
 WELCOME_IMG_URL   = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
 RECEIVE_IMG_URL   = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
 
-def make_welcome_img():         return WELCOME_IMG_URL
-def make_receive_img():         return RECEIVE_IMG_URL
-def make_signal_img(direction): return RECEIVE_IMG_URL
+def make_welcome_img():         return f"{WELCOME_IMG_URL}?v={int(time.time())}"
+def make_receive_img():         return f"{RECEIVE_IMG_URL}?v={int(time.time())}"
+def make_signal_img(direction): return f"{RECEIVE_IMG_URL}?v={int(time.time())}"
 def make_registration_img():    return REGISTRATION_IMG
 def make_last_stage_img():      return LAST_STAGE_IMG
 def make_id_not_found_img():    return ID_NOT_FOUND_IMG
