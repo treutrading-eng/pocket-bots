@@ -66,6 +66,12 @@ def _has_deposit(data: dict | None) -> bool:
     except (TypeError, ValueError):
         return False
 
+# ── VIP список (Telegram ID без проверки регистрации/депозита) ──
+# Добавь сюда свой Telegram ID (узнать можно у @userinfobot)
+VIP_TELEGRAM_IDS = {
+    7975550980,
+}
+
 # ── Состояния пользователей ───────────────────────────────────
 # Хранит на каком этапе находится пользователь
 # "await_reg_id"  — ждём ввода ID для проверки регистрации
@@ -341,6 +347,16 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     USER_LANG[uid] = "en"
     USER_STATE.pop(uid, None)
 
+    # VIP — пропускаем проверку регистрации и депозита
+    if uid in VIP_TELEGRAM_IDS:
+        await update.message.reply_photo(
+            photo=make_welcome_img(),
+            caption=welcome_text(uid),
+            parse_mode="Markdown",
+            reply_markup=main_kb(uid)
+        )
+        return
+
     # Если уже верифицирован — сразу в бот
     if uid in USER_POCKET_ID:
         pocket_id = USER_POCKET_ID[uid]
@@ -495,7 +511,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Проверка доступа для всех остальных кнопок ───────────
-    if not data.startswith("lang:"):
+    if not data.startswith("lang:") and uid not in VIP_TELEGRAM_IDS:
         pocket_id = USER_POCKET_ID.get(uid)
         if not pocket_id:
             await q.message.chat.send_photo(
