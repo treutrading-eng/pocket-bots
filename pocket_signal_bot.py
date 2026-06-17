@@ -238,10 +238,7 @@ def dep_ok_text():
     )
 
 def dep_fail_text():
-    return (
-        "We couldn't find a deposit on your account yet.\n\n"
-        "Please make a deposit and press \"Check deposit\" again."
-    )
+    return "⁉️ We couldn't find any deposit linked to your ID."
 
 def ask_dep_id_text():
     return (
@@ -421,9 +418,8 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=dep_ok_kb(uid)
             )
         else:
-            await update.message.reply_photo(
-                photo=make_id_not_found_img(),
-                caption=dep_fail_text(),
+            await update.message.reply_text(
+                dep_fail_text(),
                 reply_markup=dep_fail_kb()
             )
         return
