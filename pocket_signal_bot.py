@@ -1,34 +1,102 @@
 """
 TREU AI — Trading Signal Bot
+с пошаговой проверкой регистрации и депозита через PocketPartners API
 """
-import os, io, logging, random
+import os, io, logging, random, hashlib, aiohttp, time
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 
+# ── PocketPartners настройки ──────────────────────────────────
+POCKET_PARTNER_ID = os.getenv("POCKET_PARTNER_ID", "ВАШ_PARTNER_ID")
+POCKET_API_TOKEN  = os.getenv("POCKET_API_TOKEN",  "ВАШ_API_TOKEN")
+POCKET_REF_LINK   = os.getenv("POCKET_REF_LINK",   "ВАША_РЕФЕРАЛЬНАЯ_ССЫЛКА")
+POCKET_API_BASE   = "https://pocketpartners.com/api/user-info"
+
+def _pocket_hash(user_id: str) -> str:
+    raw = f"{user_id}:{POCKET_PARTNER_ID}:{POCKET_API_TOKEN}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+async def check_pocket_user(pocket_id: str) -> dict | None:
+    """Запрос к PocketPartners API по ID пользователя с платформы."""
+    url = f"{POCKET_API_BASE}/{pocket_id}/{POCKET_PARTNER_ID}/{_pocket_hash(pocket_id)}"
+    logging.info(f"[PocketPartners] Запрос URL: {url}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                raw_text = await resp.text()
+                logging.info(f"[PocketPartners] Статус: {resp.status} | Ответ: {raw_text}")
+                if resp.status == 200:
+                    try:
+                        return await resp.json(content_type=None)
+                    except Exception as parse_err:
+                        logging.error(f"[PocketPartners] Не удалось распарсить JSON: {parse_err}")
+                        return None
+                logging.warning(f"[PocketPartners] HTTP {resp.status} для user {pocket_id}")
+                return None
+    except Exception as e:
+        logging.error(f"[PocketPartners] Ошибка запроса: {e}")
+        return None
+
+def _is_registered(data: dict | None) -> bool:
+    """
+    Пользователь считается зарегистрированным, если API вернул его карточку
+    (есть uid и дата регистрации). API не отдаёт отдельное поле "registered" —
+    если запись найдена (status 200), значит пользователь существует в системе.
+    """
+    if not data:
+        return False
+    return bool(data.get("uid")) or bool(data.get("reg_date"))
+
+def _has_deposit(data: dict | None) -> bool:
+    """
+    Депозит подтверждён, если есть хотя бы один платёж.
+    Используем count_deposits / sum_deposits из реального ответа API.
+    """
+    if not data:
+        return False
+    count = data.get("count_deposits", 0) or 0
+    total = data.get("sum_deposits", 0) or 0
+    try:
+        return float(count) > 0 or float(total) > 0
+    except (TypeError, ValueError):
+        return False
+
+# ── VIP список (Telegram ID без проверки регистрации/депозита) ──
+# Добавь сюда свой Telegram ID (узнать можно у @userinfobot)
+VIP_TELEGRAM_IDS = {
+    7975550980,
+}
+
+# ── Состояния пользователей ───────────────────────────────────
+# Хранит на каком этапе находится пользователь
+# "await_reg_id"  — ждём ввода ID для проверки регистрации
+# "await_dep_id"  — ждём ввода ID для проверки депозита
+USER_STATE: dict[int, str] = {}
+
+# Хранит pocket_id после успешной регистрации
+USER_POCKET_ID: dict[int, str] = {}
+
 USER_LANG: dict[int, str] = {}
-def lang(uid): return USER_LANG.get(uid, "ru")
+def lang(uid): return USER_LANG.get(uid, "en")
 
 # ── Images ────────────────────────────────────────────────────
-WELCOME_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
-RECEIVE_IMG_URL = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
+REGISTRATION_IMG  = "https://treutrading-eng.github.io/pocket-bots/registration.jpg"
+LAST_STAGE_IMG    = "https://treutrading-eng.github.io/pocket-bots/last_stage.png"
+ID_NOT_FOUND_IMG  = "https://treutrading-eng.github.io/pocket-bots/id_not_found.png"
+WELCOME_IMG_URL   = "https://treutrading-eng.github.io/pocket-bots/welcome.jpg"
+RECEIVE_IMG_URL   = "https://treutrading-eng.github.io/pocket-bots/receive.jpg"
 
-def make_welcome_img():
-    return WELCOME_IMG_URL
-
-def make_receive_img():
-    return RECEIVE_IMG_URL
-
-def make_signal_img(direction):
-    color_name = "green" if direction == "buy" else "red"
-    return RECEIVE_IMG_URL
-
-def make_receive_img():
-    return RECEIVE_IMG_URL
+def make_welcome_img():         return f"{WELCOME_IMG_URL}?v={int(time.time())}"
+def make_receive_img():         return f"{RECEIVE_IMG_URL}?v={int(time.time())}"
+def make_signal_img(direction): return f"{RECEIVE_IMG_URL}?v={int(time.time())}"
+def make_registration_img():    return REGISTRATION_IMG
+def make_last_stage_img():      return LAST_STAGE_IMG
+def make_id_not_found_img():    return ID_NOT_FOUND_IMG
 
 # ── Pairs & Analysis ──────────────────────────────────────────
 PAIRS = {
@@ -81,7 +149,6 @@ def analyze(pair, tf, uid):
     info = PAIRS[pair]
     candles = gen_candles(info["base"], info["vol"])
     closes = [c["c"] for c in candles]
-    n = len(closes)
     rsi = calc_rsi(closes)
     ma20 = sum(closes[-20:])/20; ma50 = sum(closes[-50:])/50
     macd = sum(closes[-12:])/12 - sum(closes[-26:])/26
@@ -110,12 +177,6 @@ def analyze(pair, tf, uid):
 
 # ── Text ──────────────────────────────────────────────────────
 def welcome_text(uid):
-    if lang(uid) == "en":
-        return (
-            "👋 *Welcome to TREU TRADING AI*\n\n"
-            "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
-            "🤖 Our assistant processes market data using advanced analytical models to identify potential opportunities and market trends."
-        )
     return (
         "👋 *Welcome to TREU TRADING AI*\n\n"
         "📊 A community focused on market analysis, trading technologies, and AI-powered insights.\n\n"
@@ -147,6 +208,49 @@ def signal_text(d, uid):
         f"⚠️ _{'For analysis only. Trading is your risk.' if ln=='en' else 'Только для анализа. Торговля — ваш риск.'}_"
     )
 
+# ── Step texts ────────────────────────────────────────────────
+def step1_text():
+    return (
+        "First, register with the broker using the button below.\n\n"
+        "If you already have an account, create a new one so the bot can verify your registration and enable access to signals.\n\n"
+        "After registration, click \"Registration completed\"."
+    )
+
+def ask_id_text():
+    return (
+        "Now send your platform ID to the bot\n\n"
+        "IMPORTANT! Do not enter anything except numbers into the bot"
+    )
+
+def reg_ok_text():
+    return (
+        "Registration completed! ✅\n\n"
+        "Final step: make a deposit to activate access to the trading bot.\n\n"
+        "After completing the deposit, click \"Deposit completed\"."
+    )
+
+def reg_fail_text():
+    return (
+        "Your ID was not found in our system.\n\n"
+        "Please make sure you registered via the referral link and entered the correct ID, then try again."
+    )
+
+def dep_ok_text():
+    return (
+        "🎉 *Deposit confirmed!*\n\n"
+        "You now have full access to TREU TRADING AI.\n\n"
+        "Press *Start Trading* to get your first signal!"
+    )
+
+def dep_fail_text():
+    return "⁉️ We couldn't find any deposit linked to your ID."
+
+def ask_dep_id_text():
+    return (
+        "Now send your platform ID to the bot\n\n"
+        "IMPORTANT! Do not enter anything except numbers into the bot"
+    )
+
 # ── Keyboards ─────────────────────────────────────────────────
 def lang_kb():
     return InlineKeyboardMarkup([[
@@ -161,6 +265,40 @@ def main_kb(uid):
         [InlineKeyboardButton("📊 " + ("VIEW RESULTS" if ln=="en" else "СМОТРЕТЬ РЕЗУЛЬТАТЫ"), callback_data="results")],
         [InlineKeyboardButton("🆘 " + ("SUPPORT" if ln=="en" else "ПОДДЕРЖКА"), url="https://t.me/treu_support")],
     ])
+
+def step1_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 Register", url=POCKET_REF_LINK)],
+        [InlineKeyboardButton("✅ Registration completed", callback_data="check_reg")],
+        [InlineKeyboardButton("Support", url="https://t.me/treu_support")],
+    ])
+
+def ask_id_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅ Back", callback_data="back_to_step1")],
+    ])
+
+def reg_fail_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 Try again", callback_data="check_reg")],
+        [InlineKeyboardButton("⬅ Back", callback_data="back_to_step1")],
+    ])
+
+def reg_ok_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Deposit", url=POCKET_REF_LINK)],
+        [InlineKeyboardButton("✅ Deposit completed", callback_data="check_dep")],
+        [InlineKeyboardButton("Support", url="https://t.me/treu_support")],
+    ])
+
+def dep_fail_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 Check deposit", callback_data="check_dep")],
+        [InlineKeyboardButton("⬅ Back", callback_data="back_to_reg_ok")],
+    ])
+
+def dep_ok_kb(uid):
+    return main_kb(uid)
 
 def signal_kb(uid):
     ln = lang(uid)
@@ -202,17 +340,104 @@ def tf_kb(pair, uid):
     rows.append([InlineKeyboardButton("◀ " + ("Back" if ln=="en" else "Назад"), callback_data="get_signal")])
     return InlineKeyboardMarkup(rows)
 
-# ── Handlers ─────────────────────────────────────────────────
+# ── Handlers ──────────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     USER_LANG[uid] = "en"
-    img = make_welcome_img()
+    USER_STATE.pop(uid, None)
+
+    # VIP — пропускаем проверку регистрации и депозита
+    if uid in VIP_TELEGRAM_IDS:
+        await update.message.reply_photo(
+            photo=make_welcome_img(),
+            caption=welcome_text(uid),
+            parse_mode="Markdown",
+            reply_markup=main_kb(uid)
+        )
+        return
+
+    # Если уже верифицирован — сразу в бот
+    if uid in USER_POCKET_ID:
+        pocket_id = USER_POCKET_ID[uid]
+        data = await check_pocket_user(pocket_id)
+        if data:
+            registered = _is_registered(data)
+            deposited  = _has_deposit(data)
+            if registered and deposited:
+                await update.message.reply_photo(
+                    photo=make_welcome_img(),
+                    caption=welcome_text(uid),
+                    parse_mode="Markdown",
+                    reply_markup=main_kb(uid)
+                )
+                return
+
     await update.message.reply_photo(
-        photo=img,
-        caption=welcome_text(uid),
-        parse_mode="Markdown",
-        reply_markup=main_kb(uid)
+        photo=make_registration_img(),
+        caption=step1_text(),
+        reply_markup=step1_kb()
     )
+
+async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает текстовые сообщения — ввод PocketPartners ID."""
+    uid = update.message.from_user.id
+    state = USER_STATE.get(uid)
+
+    if state == "await_reg_id":
+        pocket_id = update.message.text.strip()
+
+        if not pocket_id.isdigit():
+            await update.message.reply_text(
+                "⚠️ Please enter numbers only."
+            )
+            return  # остаёмся в том же состоянии, ждём корректный ID
+
+        USER_STATE.pop(uid, None)
+        data = await check_pocket_user(pocket_id)
+        registered = _is_registered(data)
+
+        if registered:
+            USER_POCKET_ID[uid] = pocket_id
+            await update.message.reply_photo(
+                photo=make_last_stage_img(),
+                caption=reg_ok_text(),
+                reply_markup=reg_ok_kb()
+            )
+        else:
+            await update.message.reply_photo(
+                photo=make_id_not_found_img(),
+                caption=reg_fail_text(),
+                reply_markup=reg_fail_kb()
+            )
+        return
+
+    if state == "await_dep_id":
+        pocket_id = update.message.text.strip()
+
+        if not pocket_id.isdigit():
+            await update.message.reply_text(
+                "⚠️ Please enter numbers only."
+            )
+            return
+
+        USER_STATE.pop(uid, None)
+        data = await check_pocket_user(pocket_id)
+        deposited = _has_deposit(data)
+
+        if deposited:
+            USER_POCKET_ID[uid] = pocket_id
+            await update.message.reply_photo(
+                photo=make_welcome_img(),
+                caption=dep_ok_text(),
+                parse_mode="Markdown",
+                reply_markup=dep_ok_kb(uid)
+            )
+        else:
+            await update.message.reply_text(
+                dep_fail_text(),
+                reply_markup=dep_fail_kb()
+            )
+        return
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -220,12 +445,104 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     data = q.data
 
+    if data == "check_reg":
+        USER_STATE[uid] = "await_reg_id"
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=make_registration_img(),
+            caption=ask_id_text(),
+            reply_markup=ask_id_kb()
+        )
+        return
+
+    if data == "check_dep":
+        pocket_id = USER_POCKET_ID.get(uid)
+        if not pocket_id:
+            # Если ID почему-то не сохранён — просим ввести как запасной вариант
+            USER_STATE[uid] = "await_dep_id"
+            try: await q.message.delete()
+            except: pass
+            await q.message.chat.send_photo(
+                photo=make_last_stage_img(),
+                caption=ask_dep_id_text(),
+                reply_markup=ask_id_kb()
+            )
+            return
+
+        api_data = await check_pocket_user(pocket_id)
+        deposited = _has_deposit(api_data)
+
+        if deposited:
+            await q.message.chat.send_photo(
+                photo=make_welcome_img(),
+                caption=dep_ok_text(),
+                parse_mode="Markdown",
+                reply_markup=dep_ok_kb(uid)
+            )
+        else:
+            await q.message.chat.send_message(
+                dep_fail_text(),
+                reply_markup=dep_fail_kb()
+            )
+        return
+
+    if data == "back_to_step1":
+        USER_STATE.pop(uid, None)
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=make_registration_img(),
+            caption=step1_text(),
+            reply_markup=step1_kb()
+        )
+        return
+
+    if data == "back_to_reg_ok":
+        USER_STATE.pop(uid, None)
+        try: await q.message.delete()
+        except: pass
+        await q.message.chat.send_photo(
+            photo=make_last_stage_img(),
+            caption=reg_ok_text(),
+            reply_markup=reg_ok_kb()
+        )
+        return
+
+    # ── Проверка доступа для всех остальных кнопок ───────────
+    if not data.startswith("lang:") and uid not in VIP_TELEGRAM_IDS:
+        pocket_id = USER_POCKET_ID.get(uid)
+        if not pocket_id:
+            await q.message.chat.send_photo(
+                photo=make_registration_img(),
+                caption=step1_text(),
+                reply_markup=step1_kb()
+            )
+            return
+        api_data = await check_pocket_user(pocket_id)
+        registered = _is_registered(api_data)
+        deposited  = _has_deposit(api_data)
+        if not registered or not deposited:
+            if registered:
+                await q.message.chat.send_photo(
+                    photo=make_last_stage_img(),
+                    caption=reg_ok_text(),
+                    reply_markup=reg_ok_kb()
+                )
+            else:
+                await q.message.chat.send_photo(
+                    photo=make_registration_img(),
+                    caption=step1_text(),
+                    reply_markup=step1_kb()
+                )
+            return
+    # ─────────────────────────────────────────────────────────
+
     if data.startswith("lang:"):
         USER_LANG[uid] = data.split(":")[1]
-        img = make_welcome_img()
         await q.message.delete()
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_welcome_img(),
             caption=welcome_text(uid),
             parse_mode="Markdown",
             reply_markup=main_kb(uid)
@@ -233,11 +550,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "home":
-        img = make_welcome_img()
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_welcome_img(),
             caption=welcome_text(uid),
             parse_mode="Markdown",
             reply_markup=main_kb(uid)
@@ -245,11 +561,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "start_trading":
-        img = make_receive_img()
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_receive_img(),
             caption=congrats_text(uid),
             parse_mode="Markdown",
             reply_markup=signal_kb(uid)
@@ -266,7 +581,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data == "get_signal":
         ln = lang(uid)
         await q.message.chat.send_message(
-            "🌍 *Выберите категорию / Choose category:*" if ln=="ru" else "🌍 *Choose category:*",
+            "🌍 *Choose category:*",
             parse_mode="Markdown",
             reply_markup=pair_cat_kb(uid)
         )
@@ -274,9 +589,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("cat:"):
         cat = data.split(":")[1]
-        ln = lang(uid)
         await q.message.chat.send_message(
-            "💱 *Выберите пару / Choose pair:*" if ln=="ru" else "💱 *Choose pair:*",
+            "💱 *Choose pair:*",
             parse_mode="Markdown",
             reply_markup=pairs_kb(cat, uid)
         )
@@ -284,9 +598,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("pair:"):
         pair = data[5:]
-        ln = lang(uid)
         await q.message.chat.send_message(
-            "⏱ *Выберите таймфрейм:*" if ln=="ru" else "⏱ *Choose timeframe:*",
+            "⏱ *Choose timeframe:*",
             parse_mode="Markdown",
             reply_markup=tf_kb(pair, uid)
         )
@@ -296,11 +609,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parts = data.split(":")
         tf = parts[-1]; pair = ":".join(parts[1:-1])
         d = analyze(pair, tf, uid)
-        img = make_signal_img(d["direction"])
         try: await q.message.delete()
         except: pass
         await q.message.chat.send_photo(
-            photo=img,
+            photo=make_signal_img(d["direction"]),
             caption=signal_text(d, uid),
             parse_mode="Markdown",
             reply_markup=signal_kb(uid)
@@ -311,6 +623,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     print("✅ TREU AI Bot запущен.")
     app.run_polling(drop_pending_updates=True)
 
