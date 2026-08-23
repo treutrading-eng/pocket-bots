@@ -408,7 +408,7 @@ var currentLang='en', currentTab='regular';
 var PAIRS_REGULAR=['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','NZD/USD','EUR/JPY','GBP/JPY','USD/CHF','EUR/GBP','EUR/AUD','GBP/CAD','AUD/CAD','AUD/JPY','CAD/JPY','CHF/JPY','EUR/CAD','EUR/CHF','GBP/AUD','GBP/CHF','NZD/JPY'];
 var PAIRS_OTC=['EUR/USD OTC','GBP/USD OTC','USD/JPY OTC','AUD/USD OTC','EUR/GBP OTC','AUD/CAD OTC','EUR/JPY OTC','GBP/JPY OTC','NZD/USD OTC','USD/CAD OTC','USD/CHF OTC','EUR/AUD OTC','GBP/AUD OTC','AUD/JPY OTC','CAD/JPY OTC','CHF/JPY OTC','EUR/CAD OTC','EUR/CHF OTC','GBP/CAD OTC','NZD/JPY OTC'];
 var TF_REGULAR=[{val:'M1',label:'1m'},{val:'M3',label:'3m'},{val:'M5',label:'5m'},{val:'M15',label:'15m'}];
-var TF_OTC=[{val:'S3',label:'S3'},{val:'S15',label:'S15'},{val:'S30',label:'S30'},{val:'M1',label:'M1'},{val:'M3',label:'M3'},{val:'M5',label:'M5'}];
+var TF_OTC=[{val:'S5',label:'S5'},{val:'S15',label:'S15'},{val:'S30',label:'S30'},{val:'M1',label:'M1'},{val:'M3',label:'M3'},{val:'M5',label:'M5'}];
 
 var PAIRS_DATA={
   'EUR/USD':{base:1.0842,vol:0.0008,dec:5},'GBP/USD':{base:1.2714,vol:0.0012,dec:5},
@@ -434,8 +434,8 @@ var PAIRS_DATA={
   'GBP/CAD OTC':{base:1.7284,vol:0.0017,dec:5},'NZD/JPY OTC':{base:96.43,vol:0.14,dec:3}
 };
 
-var EXPIRY_MAP={S3:'3 sec',S15:'15 sec',S30:'30 sec',M1:'1 min',M3:'3 min',M5:'5 min',M15:'15 min'};
-var EXPIRY_MAP_RU={S3:'3 сек',S15:'15 сек',S30:'30 сек',M1:'1 мин',M3:'3 мин',M5:'5 мин',M15:'15 мин'};
+var EXPIRY_MAP={S5:'5 sec',S15:'15 sec',S30:'30 sec',M1:'1 min',M3:'3 min',M5:'5 min',M15:'15 min'};
+var EXPIRY_MAP_RU={S5:'5 сек',S15:'15 сек',S30:'30 сек',M1:'1 мин',M3:'3 мин',M5:'5 мин',M15:'15 мин'};
 
 var UI={
   instrument:{en:'Instrument',ru:'Инструмент',es:'Instrumento',pt:'Instrumento',tr:'Enstrüman'},
